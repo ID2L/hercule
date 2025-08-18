@@ -9,3 +9,10 @@ environments:
         value: true
       - key: "render_mode"
         value: "rgb_array"
+
+models:
+  - name: "dummy"
+    type: "DummyModel"
+    hyperparameters:
+      - key: "seed"
+        value: 123

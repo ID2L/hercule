@@ -25,6 +25,7 @@ class RLModel(ABC):
         self.name = name
         self.is_trained = False
         self._training_metrics: dict[str, ParameterValue] = {}
+        self.env: gym.Env | None = None
 
     @abstractmethod
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
@@ -35,7 +36,7 @@ class RLModel(ABC):
             env: Gymnasium environment
             hyperparameters: Model hyperparameters
         """
-        pass
+        self.env = env
 
     @abstractmethod
     def act(self, observation: np.ndarray, training: bool = False) -> int | np.ndarray:
@@ -125,17 +126,23 @@ class RLModel(ABC):
         """
         self._training_metrics[key] = value
 
-    def evaluate(self, env: gym.Env, num_episodes: int = 10) -> dict[str, float]:
+    def evaluate(self, num_episodes: int = 10) -> dict[str, float]:
         """
-        Evaluate the model on an environment.
+        Evaluate the model on its configured environment.
 
         Args:
-            env: Gymnasium environment
             num_episodes: Number of episodes to run
 
         Returns:
             Evaluation metrics
+
+        Raises:
+            ValueError: If model is not configured with an environment
         """
+        if self.env is None:
+            msg = "Model not configured with an environment. Call configure() first."
+            raise ValueError(msg)
+
         if not self.is_trained:
             logger.warning(f"Model {self.name} has not been trained yet")
 
@@ -143,14 +150,14 @@ class RLModel(ABC):
         episode_lengths = []
 
         for _ in range(num_episodes):
-            observation, _ = env.reset()
+            observation, _ = self.env.reset()
             episode_reward = 0.0
             episode_length = 0
             done = False
 
             while not done:
                 action = self.act(observation, training=False)
-                observation, reward, terminated, truncated, _ = env.step(action)
+                observation, reward, terminated, truncated, _ = self.env.step(action)
                 done = terminated or truncated
                 episode_reward += float(reward)
                 episode_length += 1
@@ -193,6 +200,7 @@ class BaselineModel(RLModel):
 
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
         """Configure the baseline model."""
+        super().configure(env, hyperparameters)
         self._action_space = env.action_space
         logger.info(f"Baseline model configured for environment with action space: {self._action_space}")
 
@@ -221,7 +229,12 @@ class BaselineModel(RLModel):
         Returns:
             Training results and metrics
         """
-        self.configure(env, config)
+        if not self.env:
+            self.configure(env, config)
+
+        if self.env is None:
+            msg = "Model not configured with an environment. Call configure() first."
+            raise ValueError(msg)
 
         num_episodes_value = config.get("num_episodes", 100)
         if isinstance(num_episodes_value, int):
@@ -231,13 +244,13 @@ class BaselineModel(RLModel):
         rewards = []
 
         for _ in range(num_episodes):
-            observation, _ = env.reset()
+            observation, _ = self.env.reset()
             episode_reward = 0.0
             done = False
 
             while not done:
                 action = self.act(observation, training=True)
-                next_observation, reward, terminated, truncated, _ = env.step(action)
+                next_observation, reward, terminated, truncated, _ = self.env.step(action)
                 done = terminated or truncated
                 episode_reward += float(reward)
                 observation = next_observation
