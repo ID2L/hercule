@@ -1,0 +1,53 @@
+[project]
+name = "hercule"
+version = "0.1.0"
+description = ""
+authors = [
+    { name = "guilhem.heinrich", email = "guilhem.heinrich@gmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = [
+    "poetry-core>=2.0.0,<3.0.0",
+]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [
+    { include = "hercule", from = "src" },
+]
+
+[tool.poetry.group.dev.dependencies]
+pdoc = "*"
+tomli = "*"
+pytest = "*"
+pytest-cov = "*"
+
+[tool.poetry.scripts]
+gen-doc = "pyscaf.documentation.scripts.parse_doc:gen_doc"
+serve-doc = "pyscaf.documentation.scripts.parse_doc:serve_doc"
+
+[tool.pyscaf.documentation]
+output_path = "docs"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+    "--color=yes"
+]
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests"
+]
+
