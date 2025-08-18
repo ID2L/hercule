@@ -1,0 +1,275 @@
+---
+description: troubleshooting-hercule
+globs: src/hercule/**/*.py,test_*.py,*_test.py
+---
+
+# Hercule Framework - Troubleshooting Guide
+
+## Common Issues & Solutions
+
+### 1. Environment Configuration Not Applied
+
+**Symptom**: Environment loads but hyperparameters from YAML config are ignored.
+
+**Diagnosis**:
+```python
+# Check if hyperparameters are being extracted
+config = load_config_from_yaml("config.yaml")
+hyperparams = config.get_hyperparameters_for_environment("FrozenLake-v1")
+print(f"Config hyperparams: {hyperparams}")
+
+# Check if environment receives them
+with EnvironmentManager(config) as env_manager:
+    env = env_manager.load_environment("FrozenLake-v1")
+    print(f"Env spec kwargs: {env.spec.kwargs}")
+```
+
+**Solution**: Ensure using `EnvironmentManager.load_environment()`, not direct `gym.make()`.
+
+### 2. Pydantic Validation Errors
+
+**Symptom**: `ValidationError` when loading configuration.
+
+**Common Causes**:
+- Using old `@validator` syntax instead of `@field_validator`
+- Incorrect YAML structure
+- Type mismatches
+
+**Diagnosis**:
+```python
+# Test configuration loading step by step
+try:
+    config = load_config_from_yaml("config.yaml")
+except ValidationError as e:
+    print(f"Validation errors: {e.errors()}")
+```
+
+**Solutions**:
+- Check YAML syntax and indentation
+- Verify hyperparameter types match `ParameterValue`
+- Use `@field_validator` with `@classmethod`
+
+### 3. Environment Registry Issues
+
+**Symptom**: "Environment does not exist in Gymnasium registry" but environment name looks correct.
+
+**Diagnosis**:
+```python
+from hercule.environnements import EnvironmentRegistry
+
+# Check exact environment name
+available = EnvironmentRegistry.list_available_environments()
+print(f"Total environments: {len(available)}")
+
+# Search for similar names
+similar = EnvironmentRegistry.search_environments("CartPole")
+print(f"CartPole variants: {similar}")
+```
+
+**Common Mistakes**:
+- Case sensitivity: `"cartpole-v1"` vs `"CartPole-v1"`
+- Version numbers: `"CartPole-v0"` vs `"CartPole-v1"`
+- Missing dependencies for specific environment groups
+
+### 4. Import Errors
+
+**Symptom**: `ModuleNotFoundError` or circular imports.
+
+**Solution Pattern**:
+```python
+# Correct import hierarchy
+from hercule.config import HerculeConfig, ParameterValue
+from hercule.environnements import EnvironmentManager
+from hercule.models import RLModel
+from hercule.run import TrainingRunner
+```
+
+**Avoid**:
+- Importing entire modules: `import hercule.config`
+- Circular dependencies between modules
+
+### 5. Type Checking Errors
+
+**Symptom**: Type checker (Pylance/mypy) reports type errors.
+
+**Common Issues**:
+- Using old union syntax: `Union[str, int]` instead of `str | int`
+- Missing return type annotations
+- Incorrect Protocol implementations
+
+**Solutions**:
+- Use modern Python 3.10+ syntax
+- Add explicit type annotations
+- Check Protocol method signatures match exactly
+
+### 6. Configuration Hyperparameter Types
+
+**Symptom**: Hyperparameters not working with environment creation.
+
+**Diagnosis**:
+```python
+# Check hyperparameter conversion
+hyperparams = config.get_hyperparameters_for_environment("FrozenLake-v1")
+for key, value in hyperparams.items():
+    print(f"{key}: {value} ({type(value).__name__})")
+
+# Test environment creation manually
+import gymnasium as gym
+env = gym.make("FrozenLake-v1", **hyperparams)
+```
+
+**Common Type Issues**:
+- String booleans: `"true"` instead of `true` in YAML
+- List syntax: `[1, 2, 3]` vs `"[1, 2, 3]"`
+- Number formats: `1.0` vs `"1.0"`
+
+### 7. Environment Cleanup Issues
+
+**Symptom**: "Environment already closed" or resource leaks.
+
+**Solution**: Always use context managers:
+```python
+# CORRECT
+with EnvironmentManager(config) as env_manager:
+    env = env_manager.load_environment("CartPole-v1")
+    # Use environment
+    # Automatic cleanup
+
+# INCORRECT
+env_manager = EnvironmentManager(config)
+env = env_manager.load_environment("CartPole-v1")
+# Manual cleanup required, easy to forget
+env_manager.close_all()
+```
+
+### 8. Model Implementation Issues
+
+**Symptom**: Model doesn't work with training framework.
+
+**Checklist**:
+- [ ] Inherits from `RLModel` or implements `TrainingProtocol`
+- [ ] All abstract methods implemented
+- [ ] `configure()` method processes hyperparameters correctly
+- [ ] `train()` method returns proper metrics format
+- [ ] Type hints match framework expectations
+
+**Example Debug**:
+```python
+# Test model interface
+model = MyModel()
+assert hasattr(model, 'train')
+assert hasattr(model, 'configure')
+assert hasattr(model, 'save')
+assert hasattr(model, 'load')
+
+# Test training interface
+dummy_env = gym.make("CartPole-v1")
+dummy_config = {"learning_rate": 0.01}
+result = model.train(dummy_env, dummy_config, max_iterations=10)
+assert isinstance(result, dict)
+assert "mean_reward" in result
+```
+
+## Debugging Tools
+
+### 1. Configuration Validation
+```python
+# Use test script to validate setup
+python test_hercule_setup.py
+```
+
+### 2. Environment Information
+```python
+from hercule.environnements import EnvironmentInspector
+
+inspector = EnvironmentInspector()
+env_info = inspector.get_environment_info(env)
+print(f"Detailed info: {env_info}")
+```
+
+### 3. Registry Exploration
+```python
+from hercule.environnements import EnvironmentRegistry
+
+# Find all environments
+all_envs = EnvironmentRegistry.list_available_environments()
+print(f"Total: {len(all_envs)}")
+
+# Search for specific type
+atari_envs = EnvironmentRegistry.search_environments("Atari")
+classic_envs = EnvironmentRegistry.search_environments("Classic")
+```
+
+## Performance Debugging
+
+### 1. Environment Creation Time
+```python
+import time
+
+start = time.time()
+with EnvironmentManager(config) as env_manager:
+    env = env_manager.load_environment("CartPole-v1")
+end = time.time()
+print(f"Environment creation took: {end - start:.3f}s")
+```
+
+### 2. Memory Usage
+```python
+import psutil
+import os
+
+process = psutil.Process(os.getpid())
+print(f"Memory usage: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+```
+
+## Configuration Validation Script
+
+Create a diagnostic script for your configuration:
+
+```python
+#!/usr/bin/env python3
+"""Diagnostic script for Hercule configuration."""
+
+from hercule.config import load_config_from_yaml
+from hercule.environnements import EnvironmentManager, EnvironmentRegistry
+
+def diagnose_config(config_path: str):
+    print(f"Diagnosing {config_path}...")
+    
+    # Load configuration
+    try:
+        config = load_config_from_yaml(config_path)
+        print("✓ Configuration loaded successfully")
+    except Exception as e:
+        print(f"✗ Configuration loading failed: {e}")
+        return
+    
+    # Validate environments
+    try:
+        with EnvironmentManager(config) as env_manager:
+            valid_envs = env_manager.validate_environments()
+            print(f"✓ Valid environments: {valid_envs}")
+    except Exception as e:
+        print(f"✗ Environment validation failed: {e}")
+    
+    # Check environment hyperparameters
+    for env_name in config.get_environment_names():
+        hyperparams = config.get_hyperparameters_for_environment(env_name)
+        if hyperparams:
+            print(f"  {env_name}: {hyperparams}")
+        else:
+            print(f"  {env_name}: no hyperparameters")
+
+if __name__ == "__main__":
+    diagnose_config("config_example.yaml")
+```
+
+## When to Contact Support
+
+Issues that might require framework modifications:
+1. New environment types not supported by current architecture
+2. Hyperparameter types not covered by `ParameterValue`
+3. Performance issues with large numbers of environments
+4. Integration issues with new Gymnasium versions
+
+For these cases, refer to the architecture documentation in [hercule-architecture.mdc](mdc:.cursor/rules/hercule-architecture.mdc) and consider framework extensions.

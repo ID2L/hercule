@@ -1,0 +1,221 @@
+---
+description: decisions-hercule-rationale
+---
+
+# Hercule Framework - Design Decisions & Rationale
+
+## Key Architectural Decisions
+
+### 1. Pydantic V2 for Configuration
+**Decision**: Use Pydantic V2 with `@field_validator` instead of older validation approaches.
+
+**Rationale**:
+- Type safety with runtime validation
+- Automatic JSON/YAML serialization
+- Modern Python 3.10+ syntax support
+- Better error messages for configuration issues
+
+**Implementation**:
+- `@field_validator` replaces deprecated `@validator`
+- `@classmethod` required for validators
+- Type hints: `str | int` instead of `Union[str, int]`
+
+### 2. Unified Environment Loading
+**Decision**: Single `load_environment()` method that always applies configuration.
+
+**Rationale**:
+- Eliminates confusion between configured vs unconfigured environments
+- Simpler API - no need to choose between methods
+- Configuration consistency - hyperparameters always applied when available
+- Empty dict passed to `gym.make()` when no hyperparameters (safe operation)
+
+**Previous Approach** (rejected):
+```python
+# Complex dual approach
+load_environment(name)                    # No config
+load_environment_with_config(env_config)  # With config
+```
+
+**Current Approach**:
+```python
+# Unified approach
+hyperparams = config.get_hyperparameters_for_environment(env_name)
+gym.make(env_name, **hyperparams)  # Always applies config
+```
+
+### 3. Module Separation Strategy
+**Decision**: Extract environment logic from `run` module into dedicated `environnements` module.
+
+**Rationale**:
+- Single Responsibility Principle
+- `run` focuses on training orchestration
+- `environnements` handles Gymnasium integration
+- Better testability and maintainability
+- Clearer import dependencies
+
+**Module Responsibilities**:
+- `config/`: Configuration parsing and validation
+- `environnements/`: Gymnasium environment management
+- `models/`: RL algorithm implementations
+- `run/`: Training execution and results
+- `benchmark/`: Multi-model/environment orchestration
+
+### 4. Type Alias for Hyperparameters
+**Decision**: Create `ParameterValue` type alias for hyperparameter values.
+
+```python
+ParameterValue = str | int | float | bool | list[str] | list[int] | list[float] | list[bool]
+```
+
+**Rationale**:
+- Single source of truth for supported types
+- Easier to maintain and extend
+- Better code readability
+- Consistent across all modules
+
+### 5. Gymnasium .spec API Usage
+**Decision**: Extract environment metadata from `env.spec` rather than configuration files.
+
+**Rationale**:
+- Authoritative source of environment information
+- Access to `max_episode_steps`, `reward_threshold`, etc.
+- Hyperparameters available in `spec.kwargs`
+- Reduces configuration duplication
+
+**Implementation**:
+```python
+# Extract from spec
+max_steps = env.spec.max_episode_steps
+hyperparams = env.spec.kwargs
+reward_threshold = env.spec.reward_threshold
+```
+
+### 6. Factory + Inspector Pattern
+**Decision**: Separate environment creation (`EnvironmentFactory`) from information extraction (`EnvironmentInspector`).
+
+**Rationale**:
+- Factory handles caching and creation logic
+- Inspector handles metadata extraction
+- Cleaner separation of concerns
+- Inspector can work with any environment instance
+
+### 7. Context Manager Pattern
+**Decision**: All managers implement context management protocol.
+
+**Rationale**:
+- Automatic resource cleanup
+- Exception safety
+- Python best practices
+- Prevents resource leaks
+
+### 8. Protocol-Based Model Interface
+**Decision**: Use `typing.Protocol` for model interface instead of abstract base class inheritance.
+
+**Rationale**:
+- Duck typing compatibility
+- More flexible than inheritance
+- Clear interface definition
+- Better for testing (mocking)
+
+### 9. Structured Information Classes
+**Decision**: Use Pydantic models for all structured data (environment info, results, etc.).
+
+**Rationale**:
+- Type safety at runtime
+- Automatic validation
+- JSON serialization
+- IDE auto-completion
+- Better than plain dictionaries
+
+### 10. Modern Python Features
+**Decision**: Require Python 3.10+ and use modern syntax throughout.
+
+**Rationale**:
+- Union types with `|` operator
+- Structural pattern matching (if needed)
+- Better type hints
+- Performance improvements
+- Future-proofing
+
+## Rejected Alternatives
+
+### Configuration Formats
+**Rejected**: JSON, TOML, Python files
+**Chosen**: YAML
+**Reason**: Human-readable, supports comments, good for ML configurations
+
+### Validation Libraries
+**Rejected**: marshmallow, cerberus, custom validation
+**Chosen**: Pydantic V2
+**Reason**: Type integration, performance, modern Python support
+
+### Environment Management
+**Rejected**: Direct `gym.make()` calls throughout codebase
+**Chosen**: Centralized `EnvironmentManager`
+**Reason**: Configuration consistency, caching, error handling
+
+### Error Handling
+**Rejected**: Silent failures or generic error messages
+**Chosen**: Specific errors with helpful suggestions
+**Reason**: Better developer experience, easier debugging
+
+## Configuration Design Philosophy
+
+### 1. Progressive Enhancement
+- Start simple: `"CartPole-v1"` (string)
+- Add complexity when needed: full configuration objects
+- Backward compatibility maintained
+
+### 2. Explicit Over Implicit
+- Always show what configuration is being applied
+- Clear distinction between defaults and user settings
+- No hidden magic behavior
+
+### 3. Fail Fast
+- Validate environments at startup
+- Clear error messages with suggestions
+- No runtime surprises during training
+
+### 4. Extensibility
+- Easy to add new hyperparameter types
+- Plugin-style model architecture
+- Configuration schema can evolve
+
+## Performance Considerations
+
+### 1. Environment Caching
+- Cache environments by (name + hyperparameters)
+- Avoid repeated expensive environment creation
+- Context managers ensure cleanup
+
+### 2. Lazy Loading
+- Environments loaded only when needed
+- Configuration parsed once at startup
+- Registry operations use efficient lookups
+
+### 3. Memory Management
+- Context managers for automatic cleanup
+- Explicit environment closing
+- Factory tracks all created instances
+
+## Future Extensibility
+
+### 1. New Environment Types
+Framework can easily support:
+- Custom environments
+- Multi-agent environments
+- Vectorized environments
+
+### 2. Additional Hyperparameter Types
+Easy to extend `ParameterValue` type:
+```python
+ParameterValue = ... | dict[str, Any] | custom_type
+```
+
+### 3. Alternative Backends
+Architecture supports:
+- Different RL libraries (beyond Gymnasium)
+- Remote environments
+- Distributed training
+
+These design decisions create a robust, maintainable, and extensible framework for RL experimentation.

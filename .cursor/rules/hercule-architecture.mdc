@@ -1,0 +1,130 @@
+---
+description: architecture-hercule
+globs: src/**/*.py
+---
+
+# Hercule Framework Architecture
+
+## Project Overview
+Hercule is a reinforcement learning framework designed to benchmark RL models across multiple Gymnasium environments with a modular, configuration-driven approach.
+
+## Core Architecture Principles
+
+### 1. Module Separation
+- **[src/hercule/config/](mdc:src/hercule/config/)**: Configuration management with Pydantic V2 validation
+- **[src/hercule/environnements/](mdc:src/hercule/environnements/)**: Environment management and Gymnasium integration
+- **[src/hercule/models/](mdc:src/hercule/models/)**: Abstract base classes for RL models
+- **[src/hercule/run/](mdc:src/hercule/run/)**: Training execution and result management
+- **[src/hercule/benchmark/](mdc:src/hercule/benchmark/)**: Benchmarking orchestration
+
+### 2. Configuration System
+- Uses **Pydantic V2** with `@field_validator` (NOT `@validator`)
+- Type alias `ParameterValue = str | int | float | bool | list[str] | list[int] | list[float] | list[bool]`
+- YAML configuration with dual support:
+  - Simple strings: `"CartPole-v1"`
+  - Full config objects with hyperparameters
+- **Critical**: Hyperparameters are ALWAYS applied via `config.get_hyperparameters_for_environment()`
+
+### 3. Environment Management Strategy
+- **Single method**: `EnvironmentManager.load_environment(env_name)` always applies configuration
+- Configuration hyperparameters passed as `**kwargs` to `gym.make()`
+- Uses Gymnasium's `.spec` API for metadata extraction
+- Registry validation before environment creation
+- Intelligent error messages with similar environment suggestions
+
+### 4. Type System
+- Modern Python 3.10+ typing with `|` unions (NOT `typing.Union`)
+- Avoid `Any` - use explicit union types
+- Pydantic models for structured data:
+  - `SpaceInfo`, `DiscreteSpaceInfo`, `BoxSpaceInfo`
+  - `EnvironmentInfo` with `EnvironmentSpecInfo`
+  - `RunResult` for training outcomes
+
+## Key Implementation Details
+
+### Environment Configuration
+```python
+# In EnvironmentManager.load_environment():
+hyperparams = self.config.get_hyperparameters_for_environment(env_name)
+return self.factory.get_or_create_environment(env_name, **hyperparams)
+```
+
+### Information Extraction
+- Use `env.spec.kwargs` for actual environment hyperparameters
+- Use `env.spec.max_episode_steps`, `env.spec.reward_threshold` etc.
+- Convert numpy arrays to lists with `.tolist()` for JSON serialization
+
+### Error Handling Pattern
+```python
+if not EnvironmentRegistry.environment_exists(env_name):
+    similar_envs = EnvironmentRegistry.get_similar_environments(env_name)
+    # Provide helpful suggestions
+```
+
+## Common Patterns
+
+### 1. Context Managers
+All managers implement context management for automatic cleanup:
+```python
+with EnvironmentManager(config) as env_manager:
+    # Use manager
+    pass  # Automatic cleanup
+```
+
+### 2. Factory Pattern
+- `EnvironmentFactory` for environment creation with caching
+- `EnvironmentInspector` for metadata extraction
+- `EnvironmentRegistry` for registry operations (static methods)
+
+### 3. Protocol-Based Design
+```python
+class TrainingProtocol(Protocol):
+    def train(self, env: gym.Env, config: dict[str, ParameterValue], max_iterations: int) -> dict[str, ParameterValue]:
+        ...
+```
+
+## Configuration Examples
+
+### YAML Structure
+```yaml
+environments:
+  - "CartPole-v1"  # Simple string
+  - name: "FrozenLake-v1"  # With hyperparameters
+    hyperparameters:
+      - key: "is_slippery"
+        value: false
+      - key: "map_name"
+        value: "4x4"
+
+models:
+  - name: "dqn"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.001
+      - key: "hidden_layers"
+        value: [64, 64]  # Lists supported
+```
+
+## Testing Strategy
+- Use [test_hercule_setup.py](mdc:test_hercule_setup.py) for configuration validation
+- Environment loading with hyperparameter verification
+- Detailed spec information extraction testing
+- Compare configuration vs actual environment parameters
+
+## Import Patterns
+```python
+# Preferred imports
+from hercule.config import HerculeConfig, ParameterValue
+from hercule.environnements import EnvironmentManager, EnvironmentInfo
+from hercule.models import RLModel
+from hercule.run import TrainingRunner, RunResult
+```
+
+## Development Guidelines
+1. Always use type hints with modern Python 3.10+ syntax
+2. Validate environments exist before creation
+3. Apply configuration hyperparameters universally
+4. Use Pydantic for all configuration classes
+5. Implement proper context management
+6. Extract metadata from Gymnasium's `.spec` API
+7. Provide helpful error messages with suggestions

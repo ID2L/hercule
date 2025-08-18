@@ -1,0 +1,237 @@
+---
+description: patterns-hercule-rl
+globs: src/hercule/**/*.py
+---
+
+# Hercule RL Framework - Code Patterns & Best Practices
+
+## Configuration Patterns
+
+### Loading Configuration
+```python
+# Always load configuration first
+from hercule.config import load_config_from_yaml
+config = load_config_from_yaml("config.yaml")
+
+# Get environment hyperparameters (returns empty dict if none)
+hyperparams = config.get_hyperparameters_for_environment("FrozenLake-v1")
+model_hyperparams = config.get_hyperparameters_for_model("dqn")
+```
+
+### Environment Creation Pattern
+```python
+# CORRECT - Always use EnvironmentManager
+with EnvironmentManager(config) as env_manager:
+    env = env_manager.load_environment("FrozenLake-v1")  # Config applied automatically
+    info = env_manager.get_environment_info("FrozenLake-v1")
+
+# INCORRECT - Direct gym.make() bypasses configuration
+env = gym.make("FrozenLake-v1")  # No configuration applied!
+```
+
+## RL Model Implementation Pattern
+
+### Abstract Model Structure
+When creating new RL models in [src/hercule/models/](mdc:src/hercule/models/), inherit from `RLModel`:
+
+```python
+from hercule.models import RLModel
+from hercule.config import ParameterValue
+
+class MyRLModel(RLModel):
+    def __init__(self, name: str = "my_model"):
+        super().__init__(name)
+        # Model-specific initialization
+    
+    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
+        """Configure model for specific environment."""
+        self.env = env
+        self.hyperparams = hyperparameters
+        # Extract hyperparameters
+        self.learning_rate = hyperparameters.get("learning_rate", 0.001)
+        
+    def train(self, env: gym.Env, config: dict[str, ParameterValue], max_iterations: int) -> dict[str, ParameterValue]:
+        """Training implementation."""
+        self.configure(env, config)
+        # Training logic here
+        return {"mean_reward": 0.0, "episodes": max_iterations}
+```
+
+## Environment Information Extraction
+
+### Getting Detailed Environment Info
+```python
+from hercule.environnements import EnvironmentInspector
+
+# Extract all available information from environment
+inspector = EnvironmentInspector()
+env_info = inspector.get_environment_info(env)
+
+# Access structured information
+print(f"Environment: {env_info.name}")
+print(f"Max steps: {env_info.max_episode_steps}")
+print(f"Observation type: {env_info.observation_space.type}")
+
+# Get hyperparameters from spec
+spec_hyperparams = inspector.get_environment_hyperparameters(env)
+```
+
+### Space Type Handling
+```python
+from hercule.environnements import BoxSpaceInfo, DiscreteSpaceInfo
+
+if isinstance(env_info.action_space, DiscreteSpaceInfo):
+    num_actions = env_info.action_space.n
+elif isinstance(env_info.action_space, BoxSpaceInfo):
+    action_bounds = (env_info.action_space.low, env_info.action_space.high)
+```
+
+## Training Execution Pattern
+
+### Single Training Run
+```python
+from hercule.run import TrainingRunner
+
+with TrainingRunner(config) as runner:
+    # Validate configuration first
+    if not runner.validate_configuration():
+        raise ValueError("Invalid environment configuration")
+    
+    # Run training
+    result = runner.run_single_training(
+        model=my_model,
+        environment_name="CartPole-v1",
+        model_name="dqn",
+        hyperparameters={"learning_rate": 0.001}
+    )
+    
+    if result.success:
+        print(f"Training completed: {result.metrics}")
+    else:
+        print(f"Training failed: {result.error_message}")
+```
+
+## Error Handling Patterns
+
+### Environment Validation
+```python
+from hercule.environnements import EnvironmentRegistry
+
+# Check environment exists before use
+if not EnvironmentRegistry.environment_exists("MyEnv-v1"):
+    suggestions = EnvironmentRegistry.get_similar_environments("MyEnv-v1")
+    print(f"Environment not found. Similar: {suggestions}")
+
+# Search for environments
+cartpole_envs = EnvironmentRegistry.search_environments("CartPole")
+```
+
+### Configuration Validation
+```python
+# Always validate environments can be loaded
+try:
+    valid_envs = env_manager.validate_environments()
+    print(f"Valid environments: {valid_envs}")
+except ValueError as e:
+    print(f"Environment validation failed: {e}")
+```
+
+## Type Annotation Patterns
+
+### Modern Python 3.10+ Types
+```python
+# CORRECT - Use union with |
+hyperparams: dict[str, ParameterValue]
+result: dict[str, str | int | float]
+
+# INCORRECT - Old typing module
+from typing import Dict, Union
+hyperparams: Dict[str, Union[str, int, float]]
+```
+
+### Pydantic Model Patterns
+```python
+from pydantic import BaseModel, Field, field_validator
+
+class MyConfig(BaseModel):
+    learning_rate: float = Field(gt=0.0, description="Learning rate")
+    episodes: int = Field(ge=1, description="Number of episodes")
+    
+    @field_validator('learning_rate')  # NOT @validator
+    @classmethod
+    def validate_lr(cls, v: float) -> float:
+        if v > 1.0:
+            raise ValueError("Learning rate should be <= 1.0")
+        return v
+```
+
+## File Organization Patterns
+
+### Model Directory Structure
+```
+src/hercule/models/
+├── __init__.py              # Base classes (RLModel, BaselineModel)
+├── dqn/
+│   └── __init__.py          # DQN implementation
+├── ppo/
+│   └── __init__.py          # PPO implementation
+└── dummy/
+    └── __init__.py          # Simple test models
+```
+
+### Configuration Files
+```
+config_example.yaml          # Full example with all features
+simple_games.yaml           # Simple test configuration
+production_config.yaml      # Production benchmarking setup
+```
+
+## Testing Patterns
+
+### Environment Testing
+```python
+# Test environment loading with configuration
+config = load_config_from_yaml("test_config.yaml")
+with EnvironmentManager(config) as env_manager:
+    for env_name in config.get_environment_names():
+        env = env_manager.load_environment(env_name)
+        info = env_manager.get_environment_info(env_name)
+        assert env.spec.id == env_name
+```
+
+### Model Testing
+```python
+# Test model training
+model = MyRLModel()
+dummy_config = {"learning_rate": 0.01, "episodes": 10}
+result = model.train(env, dummy_config, max_iterations=10)
+assert result["episodes"] == 10
+assert "mean_reward" in result
+```
+
+## Performance Patterns
+
+### Environment Caching
+The `EnvironmentFactory` automatically caches environments based on name + hyperparameters:
+```python
+# These will be the same cached instance
+env1 = factory.get_or_create_environment("CartPole-v1")
+env2 = factory.get_or_create_environment("CartPole-v1")
+
+# This will be a different cached instance
+env3 = factory.get_or_create_environment("CartPole-v1", render_mode="human")
+```
+
+### Resource Management
+Always use context managers for automatic cleanup:
+```python
+# CORRECT
+with EnvironmentManager(config) as env_manager:
+    # Use environments
+    pass  # Automatic cleanup
+
+# INCORRECT - Manual cleanup required
+env_manager = EnvironmentManager(config)
+# ... use environments ...
+env_manager.close_all()  # Easy to forget!
+```
