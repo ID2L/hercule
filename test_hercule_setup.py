@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from src.hercule.config import load_config_from_yaml
-from src.hercule.run import BoxSpaceInfo, DiscreteSpaceInfo, EnvironmentManager
+from src.hercule.environnements import BoxSpaceInfo, DiscreteSpaceInfo, EnvironmentManager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -125,8 +125,96 @@ def display_config():
         print(f"  Total models: {len(model_names)}")
         print(f"  Model names: {', '.join(model_names)}")
 
+        # Display detailed environment information
         print("\n" + "=" * 60)
-        logger.info("✓ Configuration display completed successfully")
+        print("DETAILED ENVIRONMENT INFORMATION")
+        print("=" * 60)
+
+        # Get detailed info for each created environment
+        for i, env_config in enumerate(env_configs, 1):
+            print(f"\n{i}. Environment: {env_config.name}")
+            print("-" * 40)
+
+            try:
+                # Get the created environment instance
+                env = env_manager.load_environment(env_config.name)
+                env_info = env_manager.get_environment_info(env_config.name)
+
+                # Display basic info
+                print(f"   Name: {env_info.name}")
+                print(f"   Observation Space: {env_info.observation_space.type}")
+                if env_info.observation_space.shape:
+                    print(f"   Observation Shape: {env_info.observation_space.shape}")
+                print(f"   Action Space: {env_info.action_space.type}")
+
+                if isinstance(env_info.observation_space, DiscreteSpaceInfo):
+                    if env_info.observation_space.n:
+                        print(f"   Observation States: {env_info.observation_space.n}")
+                elif isinstance(env_info.observation_space, BoxSpaceInfo):
+                    if env_info.observation_space.low:
+                        print(f"   Observation Low: {env_info.observation_space.low}")
+                    if env_info.observation_space.high:
+                        print(f"   Observation High: {env_info.observation_space.high}")
+
+                if isinstance(env_info.action_space, DiscreteSpaceInfo):
+                    if env_info.action_space.n:
+                        print(f"   Action Count: {env_info.action_space.n}")
+                elif isinstance(env_info.action_space, BoxSpaceInfo):
+                    if env_info.action_space.low:
+                        print(f"   Action Low: {env_info.action_space.low}")
+                    if env_info.action_space.high:
+                        print(f"   Action High: {env_info.action_space.high}")
+
+                # Display spec information if available
+                if env_info.spec_info:
+                    print(f"   Spec ID: {env_info.spec_info.id}")
+                    if env_info.spec_info.entry_point:
+                        print(f"   Entry Point: {env_info.spec_info.entry_point}")
+                    if env_info.spec_info.reward_threshold is not None:
+                        print(f"   Reward Threshold: {env_info.spec_info.reward_threshold}")
+                    print(f"   Max Episode Steps: {env_info.spec_info.max_episode_steps}")
+                    print(f"   Nondeterministic: {env_info.spec_info.nondeterministic}")
+                    print(f"   Order Enforce: {env_info.spec_info.order_enforce}")
+                    print(f"   Auto Reset: {env_info.spec_info.autoreset}")
+
+                    # Display spec kwargs (actual environment hyperparameters)
+                    if env_info.spec_info.kwargs:
+                        print("   Spec Kwargs:")
+                        for key, value in env_info.spec_info.kwargs.items():
+                            print(f"     - {key}: {value} ({type(value).__name__})")
+
+                # Get hyperparameters from the environment inspector
+                from src.hercule.environnements import EnvironmentInspector
+
+                inspector = EnvironmentInspector()
+                env_hyperparams = inspector.get_environment_hyperparameters(env)
+                if env_hyperparams:
+                    print("   Environment Hyperparameters (from .spec):")
+                    for key, value in env_hyperparams.items():
+                        value_type = type(value).__name__
+                        if isinstance(value, list) and value:
+                            element_type = type(value[0]).__name__ if value else "unknown"
+                            print(f"     - {key}: {value} (list of {element_type})")
+                        else:
+                            print(f"     - {key}: {value} ({value_type})")
+
+                # Configuration hyperparameters
+                config_hyperparams = config.get_hyperparameters_for_environment(env_config.name)
+                if config_hyperparams:
+                    print("   Configuration Hyperparameters:")
+                    for key, value in config_hyperparams.items():
+                        value_type = type(value).__name__
+                        if isinstance(value, list) and value:
+                            element_type = type(value[0]).__name__ if value else "unknown"
+                            print(f"     - {key}: {value} (list of {element_type})")
+                        else:
+                            print(f"     - {key}: {value} ({value_type})")
+
+            except Exception as e:
+                print(f"   ⚠️  Error getting detailed info: {e}")
+
+        print("\n" + "=" * 60)
+        logger.info("✓ Configuration and environment analysis completed successfully")
 
     except Exception as e:
         logger.error(f"✗ Failed to load or display configuration: {e}")

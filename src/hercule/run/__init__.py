@@ -1,46 +1,15 @@
-"""Run module for managing Gymnasium environments and training execution."""
+"""Run module for training execution and result management."""
 
 import logging
 from pathlib import Path
 from typing import Protocol
 
 import gymnasium as gym
-import numpy as np
-from gymnasium.envs.registration import registry
-from pydantic import BaseModel
 
-from hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
+from hercule.config import HerculeConfig, ParameterValue
+from hercule.environnements import EnvironmentManager
 
 logger = logging.getLogger(__name__)
-
-
-class SpaceInfo(BaseModel):
-    """Base class for space information."""
-
-    type: str
-    shape: tuple[int, ...] | None = None
-
-
-class DiscreteSpaceInfo(SpaceInfo):
-    """Information about a discrete action/observation space."""
-
-    n: int | None = None
-
-
-class BoxSpaceInfo(SpaceInfo):
-    """Information about a box (continuous) action/observation space."""
-
-    low: list[float] | None = None
-    high: list[float] | None = None
-
-
-class EnvironmentInfo(BaseModel):
-    """Complete information about a Gymnasium environment."""
-
-    name: str
-    observation_space: SpaceInfo
-    action_space: SpaceInfo
-    max_episode_steps: int | None = None
 
 
 class TrainingProtocol(Protocol):
@@ -67,182 +36,6 @@ class TrainingProtocol(Protocol):
     def load(self, path: Path) -> None:
         """Load a trained model from disk."""
         ...
-
-
-class EnvironmentManager:
-    """Manager for Gymnasium environments."""
-
-    def __init__(self, config: HerculeConfig) -> None:
-        """
-        Initialize the environment manager.
-
-        Args:
-            config: Hercule configuration
-        """
-        self.config = config
-        self._environments: dict[str, gym.Env] = {}
-
-    def load_environment(self, env_name: str) -> gym.Env:
-        """
-        Load a Gymnasium environment.
-
-        Args:
-            env_name: Name of the environment to load
-
-        Returns:
-            Loaded Gymnasium environment
-
-        Raises:
-            ValueError: If environment name is not supported
-        """
-        if env_name in self._environments:
-            return self._environments[env_name]
-
-        # Check if environment ID exists in Gymnasium registry
-        available_envs = registry.keys()
-        if env_name not in available_envs:
-            # Provide helpful suggestions for similar environment names
-            similar_envs = [
-                env for env in available_envs if env_name.lower() in env.lower() or env.lower() in env_name.lower()
-            ]
-            if similar_envs:
-                suggestions = ", ".join(similar_envs[:5])  # Limit to 5 suggestions
-                msg = f"Environment '{env_name}' does not exist in Gymnasium registry. Similar environments: {suggestions}"
-            else:
-                msg = f"Environment '{env_name}' does not exist in Gymnasium registry. Available environments: {len(available_envs)} total"
-            raise ValueError(msg)
-
-        try:
-            env = gym.make(env_name)
-            self._environments[env_name] = env
-            logger.info(f"Successfully loaded environment: {env_name}")
-            return env
-        except gym.error.Error as e:
-            msg = f"Failed to create environment '{env_name}' (exists in registry but creation failed): {e}"
-            raise ValueError(msg) from e
-
-    def get_environment_info(self, env_name: str) -> EnvironmentInfo:
-        """
-        Get information about an environment.
-
-        Args:
-            env_name: Name of the environment
-
-        Returns:
-            EnvironmentInfo object containing structured environment information
-        """
-        env = self.load_environment(env_name)
-
-        # Create observation space info
-        obs_space_type = type(env.observation_space).__name__
-        if obs_space_type == "Discrete":
-            obs_space_info = DiscreteSpaceInfo(type=obs_space_type, n=getattr(env.observation_space, "n", None))
-        elif obs_space_type == "Box":
-            low = getattr(env.observation_space, "low", None)
-            high = getattr(env.observation_space, "high", None)
-            obs_space_info = BoxSpaceInfo(
-                type=obs_space_type,
-                shape=getattr(env.observation_space, "shape", None),
-                low=low.tolist() if isinstance(low, np.ndarray) else None,
-                high=high.tolist() if isinstance(high, np.ndarray) else None,
-            )
-        else:
-            obs_space_info = SpaceInfo(type=obs_space_type, shape=getattr(env.observation_space, "shape", None))
-
-        # Create action space info
-        action_space_type = type(env.action_space).__name__
-        if action_space_type == "Discrete":
-            action_space_info = DiscreteSpaceInfo(type=action_space_type, n=getattr(env.action_space, "n", None))
-        elif action_space_type == "Box":
-            low = getattr(env.action_space, "low", None)
-            high = getattr(env.action_space, "high", None)
-            action_space_info = BoxSpaceInfo(
-                type=action_space_type,
-                shape=getattr(env.action_space, "shape", None),
-                low=low.tolist() if isinstance(low, np.ndarray) else None,
-                high=high.tolist() if isinstance(high, np.ndarray) else None,
-            )
-        else:
-            action_space_info = SpaceInfo(type=action_space_type, shape=getattr(env.action_space, "shape", None))
-
-        return EnvironmentInfo(
-            name=env_name,
-            observation_space=obs_space_info,
-            action_space=action_space_info,
-            max_episode_steps=getattr(env.spec, "max_episode_steps", None) if env.spec else None,
-        )
-
-    def validate_environments(self) -> list[str]:
-        """
-        Validate all configured environments can be loaded.
-
-        Returns:
-            List of successfully validated environment names
-
-        Raises:
-            ValueError: If no environments can be loaded
-        """
-        valid_environments = []
-        invalid_environments = []
-
-        for env in self.config.environments:
-            env_name = env.name if isinstance(env, EnvironmentConfig) else env
-            try:
-                self.load_environment(env_name)
-                valid_environments.append(env_name)
-            except ValueError as e:
-                logger.warning(f"Environment '{env_name}' could not be loaded: {e}")
-                invalid_environments.append(env_name)
-
-        if not valid_environments:
-            msg = f"No valid environments found. Invalid environments: {invalid_environments}"
-            raise ValueError(msg)
-
-        if invalid_environments:
-            logger.warning(f"Some environments could not be loaded: {invalid_environments}")
-
-        return valid_environments
-
-    def close_all(self) -> None:
-        """Close all loaded environments."""
-        for env in self._environments.values():
-            try:
-                env.close()
-            except Exception as e:
-                logger.warning(f"Error closing environment: {e}")
-        self._environments.clear()
-
-    @staticmethod
-    def list_available_environments() -> list[str]:
-        """
-        List all available environments in the Gymnasium registry.
-
-        Returns:
-            List of available environment IDs
-        """
-        return list(registry.keys())
-
-    @staticmethod
-    def search_environments(search_term: str) -> list[str]:
-        """
-        Search for environments containing a specific term.
-
-        Args:
-            search_term: Term to search for in environment names
-
-        Returns:
-            List of matching environment IDs
-        """
-        available_envs = registry.keys()
-        return [env for env in available_envs if search_term.lower() in env.lower()]
-
-    def __enter__(self) -> "EnvironmentManager":
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit - close all environments."""
-        self.close_all()
 
 
 class RunResult:
@@ -287,16 +80,88 @@ class RunResult:
         }
 
 
-__all__ = [
-    "SpaceInfo",
-    "DiscreteSpaceInfo",
-    "BoxSpaceInfo",
-    "EnvironmentInfo",
-    "TrainingProtocol",
-    "EnvironmentManager",
-    "RunResult",
-    "create_output_directory",
-]
+class TrainingRunner:
+    """Handles training execution across models and environments."""
+
+    def __init__(self, config: HerculeConfig):
+        """
+        Initialize the training runner.
+
+        Args:
+            config: Hercule configuration
+        """
+        self.config = config
+        self.env_manager = EnvironmentManager(config)
+
+    def run_single_training(
+        self,
+        model: TrainingProtocol,
+        environment_name: str,
+        model_name: str,
+        hyperparameters: dict[str, ParameterValue],
+    ) -> RunResult:
+        """
+        Run training for a single model-environment combination.
+
+        Args:
+            model: Model implementing TrainingProtocol
+            environment_name: Name of the environment
+            model_name: Name of the model
+            hyperparameters: Model hyperparameters
+
+        Returns:
+            RunResult containing training results
+        """
+        try:
+            # Load environment
+            env = self.env_manager.load_environment(environment_name)
+
+            # Run training
+            metrics = model.train(env, hyperparameters, self.config.max_iterations)
+
+            return RunResult(
+                environment_name=environment_name,
+                model_name=model_name,
+                hyperparameters=hyperparameters,
+                metrics=metrics,
+                success=True,
+            )
+        except Exception as e:
+            logger.error(f"Training failed for {model_name} on {environment_name}: {e}")
+            return RunResult(
+                environment_name=environment_name,
+                model_name=model_name,
+                hyperparameters=hyperparameters,
+                metrics={},
+                success=False,
+                error_message=str(e),
+            )
+
+    def validate_configuration(self) -> bool:
+        """
+        Validate that all configured environments can be loaded.
+
+        Returns:
+            True if all environments are valid, False otherwise
+        """
+        try:
+            self.env_manager.validate_environments()
+            return True
+        except ValueError as e:
+            logger.error(f"Environment validation failed: {e}")
+            return False
+
+    def close(self) -> None:
+        """Close all resources."""
+        self.env_manager.close_all()
+
+    def __enter__(self) -> "TrainingRunner":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit."""
+        self.close()
 
 
 def create_output_directory(config: HerculeConfig) -> Path:
@@ -319,3 +184,11 @@ def create_output_directory(config: HerculeConfig) -> Path:
 
     logger.info(f"Output directory created: {output_dir}")
     return output_dir
+
+
+__all__ = [
+    "TrainingProtocol",
+    "RunResult",
+    "TrainingRunner",
+    "create_output_directory",
+]

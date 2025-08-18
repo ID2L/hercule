@@ -4,7 +4,7 @@ environments:
   - name: "FrozenLake-v1"
     hyperparameters:
       - key: "map_name"
-        value: "4x4"
+        value: "8x8"
       - key: "is_slippery"
         value: true
       - key: "render_mode"
