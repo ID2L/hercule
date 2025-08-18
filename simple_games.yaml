@@ -1,0 +1,11 @@
+# Configuration simple pour tester la validation
+environments:
+  - "Taxi-v3"
+  - name: "FrozenLake-v1"
+    hyperparameters:
+      - key: "map_name"
+        value: "4x4"
+      - key: "is_slippery"
+        value: true
+      - key: "render_mode"
+        value: "rgb_array"
