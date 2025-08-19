@@ -23,3 +23,7 @@ Use docstring documentation.
 
 Use pydantic v2. Use @field_validator instead of deprecated @validator decorators.
 
+- **Use modern type union syntax**: Use `X | Y` instead of `(X, Y)` in `isinstance()` calls
+
+- Pour faire les tests, utilise directement le CLI, et ne fait plus de fichier de test à la racine
+

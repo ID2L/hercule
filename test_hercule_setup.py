@@ -238,7 +238,7 @@ def run_training_tests(config_path: Path):
         logger.info(f"✓ Output directory created: {output_dir}")
 
         # Initialize DummyModel
-        dummy_model = DummyModel(name="test_dummy")
+        dummy_model = DummyModel()
 
         print("\n" + "=" * 60)
         print("RUNNING TRAINING TESTS")

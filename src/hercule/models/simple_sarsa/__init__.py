@@ -3,14 +3,18 @@
 import logging
 import pickle
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import gymnasium as gym
 import numpy as np
 
 from hercule.config import ParameterValue
-from hercule.environnements import DiscreteSpaceInfo, EnvironmentInspector
+from hercule.environnements.validate_discrete_environment import validate_discrete_environment
 from hercule.models import RLModel
+
+
+if TYPE_CHECKING:
+    from gymnasium.spaces import Discrete
 
 
 logger = logging.getLogger(__name__)
@@ -33,9 +37,9 @@ class SimpleSarsaModel(RLModel):
     def __init__(self) -> None:
         """Initialize the SARSA model."""
         super().__init__()
-        self._q_table: dict[tuple, dict[int, float]] = {}
-        self._action_space: gym.Space | None = None
-        self._observation_space: gym.Space | None = None
+        self._q_table: np.ndarray = np.zeros((0, 0), dtype=np.float64)
+        self._action_space: gym.Space[Discrete] | None = None
+        self._observation_space: gym.Space[Discrete] | None = None
         self._num_actions: int | None = None
         self._rng = np.random.default_rng(42)
 
@@ -60,16 +64,15 @@ class SimpleSarsaModel(RLModel):
         super().configure(env, hyperparameters)
 
         # Validate environment has discrete spaces
-        self._validate_discrete_environment(env)
-
+        discrete_env = validate_discrete_environment(env)
         # Store environment spaces
-        self._action_space = env.action_space
-        self._observation_space = env.observation_space
+        self._action_space = discrete_env.action_space
+        self._observation_space = discrete_env.observation_space
         # Get number of actions from discrete action space
-        # Use cast to inform type checker that action_space has 'n' attribute after validation
-        action_space = cast("gym.spaces.Discrete", env.action_space)
-        self._num_actions = int(action_space.n)
-
+        self._num_actions = int(cast("gym.spaces.Discrete", discrete_env.action_space).n)
+        self._q_table = np.zeros(
+            (int(cast("gym.spaces.Discrete", self._observation_space).n), self._num_actions), dtype=np.float64
+        )
         # Set hyperparameters with validation
         lr = hyperparameters.get("learning_rate", 0.1)
         self._learning_rate = self._validate_hyperparameter(
@@ -107,31 +110,6 @@ class SimpleSarsaModel(RLModel):
             f"discrete action space ({self._num_actions} actions) and "
             f"discrete observation space"
         )
-
-    def _validate_discrete_environment(self, env: gym.Env) -> None:
-        """
-        Validate that the environment has discrete action and observation spaces.
-
-        Args:
-            env: Gymnasium environment to validate
-
-        Raises:
-            ValueError: If environment does not have discrete spaces
-        """
-        inspector = EnvironmentInspector()
-        env_info = inspector.get_environment_info(env)
-
-        # Check action space
-        if not isinstance(env_info.action_space, DiscreteSpaceInfo):
-            msg = f"SARSA requires discrete action space, got {env_info.action_space.type}"
-            raise ValueError(msg)
-
-        # Check observation space
-        if not isinstance(env_info.observation_space, DiscreteSpaceInfo):
-            msg = f"SARSA requires discrete observation space, got {env_info.observation_space.type}"
-            raise ValueError(msg)
-
-        logger.debug(f"Environment validation passed: {env_info.name}")
 
     def _validate_hyperparameter(self, value: float, name: str, min_val: float, max_val: float) -> float:
         """
@@ -176,7 +154,7 @@ class SimpleSarsaModel(RLModel):
             # Fallback: convert to int and wrap in tuple
             return (int(observation),)
 
-    def _get_q_value(self, state: tuple, action: int) -> float:
+    def _get_q_value(self, state: int, action: int) -> float:
         """
         Get Q-value for a state-action pair.
 
@@ -187,9 +165,12 @@ class SimpleSarsaModel(RLModel):
         Returns:
             Q-value (0.0 if not initialized)
         """
-        return self._q_table.get(state, {}).get(action, 0.0)
+        print("state", state)
+        print("action", action)
+        print("q_table", self._q_table)
+        return self._q_table[state][action]
 
-    def _set_q_value(self, state: tuple, action: int, value: float) -> None:
+    def _set_q_value(self, state: int, action: int, value: float) -> None:
         """
         Set Q-value for a state-action pair.
 
@@ -199,10 +180,10 @@ class SimpleSarsaModel(RLModel):
             value: Q-value to set
         """
         if state not in self._q_table:
-            self._q_table[state] = {}
+            raise ValueError(f"State {state} not found in Q-table")
         self._q_table[state][action] = value
 
-    def _epsilon_greedy_action(self, state: tuple, training: bool = False) -> int:
+    def _epsilon_greedy_action(self, state: int, training: bool = False) -> int:
         """
         Select action using epsilon-greedy policy.
 
@@ -217,17 +198,25 @@ class SimpleSarsaModel(RLModel):
             # Exploit: choose best action
             if self._num_actions is None:
                 raise ValueError("Number of actions not set")
-            q_values = [self._get_q_value(state, a) for a in range(self._num_actions)]
+            print("exploiting")
+            print(state)
+            print([range(self._num_actions - 1)])
+            print(self._get_q_value(state, 0))
+            q_values = [self._get_q_value(state, a) for a in range(self._num_actions - 1)]
+            print("q_values", q_values)
             max_q = max(q_values)
+            print("max_q", max_q)
             best_actions = [a for a, q in enumerate(q_values) if q == max_q]
+            print("best_actions", best_actions)
             return self._rng.choice(best_actions)
         else:
             # Explore: choose random action
             if self._num_actions is None:
                 raise ValueError("Number of actions not set")
+            print("exploring")
             return int(self._rng.integers(0, self._num_actions))
 
-    def act(self, observation: np.ndarray | int, training: bool = False) -> int:
+    def act(self, observation: int, training: bool = False) -> int:
         """
         Select an action given an observation using epsilon-greedy policy.
 
@@ -245,12 +234,10 @@ class SimpleSarsaModel(RLModel):
             msg = "Model not configured. Call configure() first."
             raise ValueError(msg)
 
-        state = self._get_state_key(observation)
+        state = observation
         return self._epsilon_greedy_action(state, training)
 
-    def learn(
-        self, observation: np.ndarray | int, action: int, reward: float, next_observation: np.ndarray | int, done: bool
-    ) -> None:
+    def learn(self, observation: int, action: int, reward: float, next_observation: int, done: bool) -> None:
         """
         Update Q-values using SARSA algorithm.
 
@@ -265,19 +252,21 @@ class SimpleSarsaModel(RLModel):
             msg = "Model not configured. Call configure() first."
             raise ValueError(msg)
 
-        current_state = self._get_state_key(observation)
-        next_state = self._get_state_key(next_observation)
+        current_state = observation
+        next_state = next_observation
 
         # Get current Q-value
         current_q = self._get_q_value(current_state, action)
-
+        print("current_q", current_q)
         if done:
             # Terminal state: no next action
             next_q = 0.0
         else:
             # Non-terminal state: get Q-value for next state-action pair
             next_action = self._epsilon_greedy_action(next_state, training=True)
+            print("next_action", next_action)
             next_q = self._get_q_value(next_state, next_action)
+            print("next_q", next_q)
 
         # SARSA update rule
         new_q = current_q + self._learning_rate * (reward + self._discount_factor * next_q - current_q)
@@ -309,20 +298,25 @@ class SimpleSarsaModel(RLModel):
         current_episode_length = 0
 
         logger.info(f"Starting SARSA training for {max_iterations} iterations")
-
+        info = self.env.spec
+        print("info", info)
         # Initialize episode
-        observation, _ = self.env.reset()
-        state = self._get_state_key(observation)
+        observation = self.env.reset()[0]
+        print("starting observation", observation)
+        state = observation
         action = self._epsilon_greedy_action(state, training=True)
-
+        print("starting action", action)
         for iteration in range(max_iterations):
             # Take action and observe result
             next_observation, reward, terminated, truncated, _ = self.env.step(action)
             done = terminated or truncated
-
+            print("observation", observation)
+            print("next observation", next_observation)
+            print(self._q_table)
             # Learn from this transition
             self.learn(observation, action, float(reward), next_observation, done)
 
+            print("there")
             # Update episode tracking
             current_episode_reward += float(reward)
             current_episode_length += 1
@@ -342,9 +336,10 @@ class SimpleSarsaModel(RLModel):
                 observation = next_observation
 
             # Select next action using SARSA (on-policy)
-            state = self._get_state_key(observation)
+            state = observation
+            print("next state", state)
             action = self._epsilon_greedy_action(state, training=True)
-
+            print("next action", action)
             # Decay epsilon (only if epsilon_decay > 0)
             if self._epsilon_decay > 0:
                 self._epsilon = max(self._epsilon_min, self._epsilon * (1.0 - self._epsilon_decay))
@@ -404,11 +399,7 @@ class SimpleSarsaModel(RLModel):
         path.mkdir(parents=True, exist_ok=True)
 
         # Convert Q-table to JSON-serializable format
-        json_q_table = {}
-        for state, actions in self._q_table.items():
-            # Convert tuple state keys to strings
-            state_key = "_".join(map(str, state))
-            json_q_table[state_key] = actions
+        json_q_table = self._q_table.tolist()
 
         # Prepare model data for JSON serialization
         model_data = {
@@ -482,12 +473,7 @@ class SimpleSarsaModel(RLModel):
                 model_data = json.load(f)
 
             # Convert Q-table back from JSON format
-            self._q_table = {}
-            for state_key, actions in model_data["q_table"].items():
-                # Convert string state keys back to tuples
-                state_parts = state_key.split("_")
-                state = tuple(int(part) for part in state_parts)
-                self._q_table[state] = actions
+            self._q_table = np.array(model_data["q_table"])
 
             # Restore model state from JSON structure
             model_hyperparams = model_data["model_hyperparameters"]
