@@ -5,9 +5,8 @@ from pathlib import Path
 from typing import Protocol
 
 import gymnasium as gym
-
-from hercule.config import HerculeConfig, ParameterValue
-from hercule.environnements import EnvironmentManager
+from src.hercule.config import HerculeConfig, ParameterValue
+from src.hercule.environnements import EnvironmentManager
 
 logger = logging.getLogger(__name__)
 

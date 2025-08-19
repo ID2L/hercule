@@ -60,14 +60,36 @@ markers = [
 [tool.ruff]
 src = ["src", "tests"]
 select = [
-    "B",  # flake8-bugbear - https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
-    "C4", # flake8-comprehensions - https://docs.astral.sh/ruff/rules/#flake8-comprehensions-c4
-    "E",  # pycodestyle errors - https://docs.astral.sh/ruff/rules/#error-e
-    "F",  # pyflakes rules - https://docs.astral.sh/ruff/rules/#pyflakes-f
-    "N",  # pep8-naming - https://docs.astral.sh/ruff/rules/#pep8-naming-n
-    "W",  # pycodestyle warnings - https://docs.astral.sh/ruff/rules/#warning-w
-    "I",  # isort - https://docs.astral.sh/ruff/rules/#isort-i
-    "UP", # pyupgrade - https://docs.astral.sh/ruff/rules/#pyupgrade-up
+    "B",   # flake8-bugbear - https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
+    "C4",  # flake8-comprehensions - https://docs.astral.sh/ruff/rules/#flake8-comprehensions-c4
+    "E",   # pycodestyle errors - https://docs.astral.sh/ruff/rules/#error-e
+    "F",   # pyflakes rules - https://docs.astral.sh/ruff/rules/#pyflakes-f
+    "N",   # pep8-naming - https://docs.astral.sh/ruff/rules/#pep8-naming-n
+    "W",   # pycodestyle warnings - https://docs.astral.sh/ruff/rules/#warning-w
+    "I",   # isort - https://docs.astral.sh/ruff/rules/#isort-i
+    "UP",  # pyupgrade - https://docs.astral.sh/ruff/rules/#pyupgrade-up
+    "TID", # flake8-tidy-imports - https://docs.astral.sh/ruff/rules/#flake8-tidy-imports-tid
+    "TC", # flake8-type-checking - https://docs.astral.sh/ruff/rules/#flake8-type-checking-tch
+    "PLC", # pylint conventions - https://docs.astral.sh/ruff/rules/#pylint-plc
+    "PLE", # pylint errors - https://docs.astral.sh/ruff/rules/#pylint-ple
+    "PLW", # pylint warnings - https://docs.astral.sh/ruff/rules/#pylint-plw
 ]
 line-length = 120
+
+# Configuration spécifique pour les imports
+[tool.ruff.lint.isort]
+known-first-party = ["hercule", "src.hercule"]
+force-single-line = false
+lines-after-imports = 2
+
+# Configuration pour les imports tidy
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"  # Interdit les imports relatifs vers les parents
+
+# Configuration pour éviter les imports incohérents
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"hercule.config".msg = "Use 'src.hercule.config' instead for consistency"
+"hercule.environnements".msg = "Use 'src.hercule.environnements' instead for consistency"
+"hercule.models".msg = "Use 'src.hercule.models' instead for consistency"
+"hercule.run".msg = "Use 'src.hercule.run' instead for consistency"
 

@@ -8,7 +8,8 @@ import numpy as np
 from gymnasium.envs.registration import registry
 from pydantic import BaseModel
 
-from hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
+from src.hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
+
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +344,9 @@ class EnvironmentManager:
             ValueError: If environment name is not supported
         """
         # Get hyperparameters for this environment (empty dict if none configured)
+        print(f"Loading environment !! : {env_name}")
         hyperparams = self.config.get_hyperparameters_for_environment(env_name)
+        print(f"Hyperparameters: {hyperparams}")
         return self.factory.get_or_create_environment(env_name, **hyperparams)
 
     def get_environment_info(self, env_name: str) -> EnvironmentInfo:

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Test script to display Hercule configuration."""
+"""Test script to display Hercule configuration and run training."""
 
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from src.hercule.config import load_config_from_yaml
 from src.hercule.environnements import BoxSpaceInfo, DiscreteSpaceInfo, EnvironmentManager
+from src.hercule.models.dummy import DummyModel
+from src.hercule.run import TrainingRunner, create_output_directory
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -221,10 +226,136 @@ def display_config():
         raise
 
 
+def run_training_tests(config_path: Path):
+    """Run training tests with DummyModel and save results to outputs."""
+    try:
+        # Load configuration
+        config = load_config_from_yaml(config_path)
+        logger.info("✓ Configuration loaded for training tests")
+
+        # Create output directory structure
+        output_dir = create_output_directory(config)
+        logger.info(f"✓ Output directory created: {output_dir}")
+
+        # Initialize DummyModel
+        dummy_model = DummyModel(name="test_dummy")
+
+        print("\n" + "=" * 60)
+        print("RUNNING TRAINING TESTS")
+        print("=" * 60)
+
+        # Run training for each environment with DummyModel
+        all_results = []
+
+        with TrainingRunner(config) as runner:
+            # Validate configuration first
+            if not runner.validate_configuration():
+                logger.error("✗ Environment validation failed")
+                return
+
+            env_names = config.get_environment_names()
+            model_configs = {model.name: config.get_hyperparameters_for_model(model.name) for model in config.models}
+
+            for env_name in env_names:
+                print(f"\n🎯 Running training on environment: {env_name}")
+                print("-" * 40)
+
+                # Use DummyModel hyperparameters from config if available
+                dummy_hyperparams = model_configs.get("dummy", {"seed": 42})
+
+                # Run training
+                result = runner.run_single_training(
+                    model=dummy_model, environment_name=env_name, model_name="dummy", hyperparameters=dummy_hyperparams
+                )
+
+                if result.success:
+                    print("✅ Training completed successfully")
+                    print(f"   Mean reward: {result.metrics.get('mean_reward', 'N/A'):.2f}")
+                    print(f"   Episodes run: {result.metrics.get('episodes_run', 'N/A')}")
+                    print(f"   Mean episode length: {result.metrics.get('mean_episode_length', 'N/A'):.1f}")
+                else:
+                    print(f"❌ Training failed: {result.error_message}")
+
+                all_results.append(result)
+
+        # Save results to outputs directory
+        save_results_to_outputs(all_results, output_dir)
+
+        print(f"\n✅ Training tests completed. Results saved to {output_dir}")
+
+    except Exception as e:
+        logger.error(f"✗ Failed to run training tests: {e}")
+        raise
+
+
+def save_results_to_outputs(results: list, output_dir: Path):
+    """Save training results to outputs directory."""
+    # Create timestamp for unique filenames
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Save individual results
+    results_dir = output_dir / "results"
+    for result in results:
+        filename = f"{result.environment_name}_{result.model_name}_{timestamp}.json"
+        result_file = results_dir / filename
+
+        with open(result_file, "w", encoding="utf-8") as f:
+            json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Saved result: {result_file}")
+
+    # Save summary results
+    summary_file = results_dir / f"training_summary_{timestamp}.json"
+    summary_data = {
+        "timestamp": timestamp,
+        "total_runs": len(results),
+        "successful_runs": sum(1 for r in results if r.success),
+        "failed_runs": sum(1 for r in results if not r.success),
+        "results": [result.to_dict() for result in results],
+    }
+
+    with open(summary_file, "w", encoding="utf-8") as f:
+        json.dump(summary_data, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Saved summary: {summary_file}")
+
+    # Save human-readable summary
+    summary_txt = results_dir / f"training_summary_{timestamp}.txt"
+    with open(summary_txt, "w", encoding="utf-8") as f:
+        f.write("HERCULE TRAINING SUMMARY\n")
+        f.write("=" * 50 + "\n")
+        f.write(f"Timestamp: {timestamp}\n")
+        f.write(f"Total runs: {len(results)}\n")
+        f.write(f"Successful: {sum(1 for r in results if r.success)}\n")
+        f.write(f"Failed: {sum(1 for r in results if not r.success)}\n\n")
+
+        f.write("DETAILED RESULTS:\n")
+        f.write("-" * 30 + "\n")
+        for i, result in enumerate(results, 1):
+            f.write(f"{i}. {result.environment_name} + {result.model_name}\n")
+            if result.success:
+                f.write("   ✅ Success\n")
+                f.write(f"   Mean reward: {result.metrics.get('mean_reward', 'N/A')}\n")
+                f.write(f"   Episodes: {result.metrics.get('episodes_run', 'N/A')}\n")
+                f.write(f"   Mean length: {result.metrics.get('mean_episode_length', 'N/A')}\n")
+            else:
+                f.write(f"   ❌ Failed: {result.error_message}\n")
+            f.write("\n")
+
+    logger.info(f"Saved human-readable summary: {summary_txt}")
+
+
 def main():
-    """Display configuration from config_example.yaml."""
-    logger.info("Hercule Configuration Display")
+    """Display configuration and run training tests."""
+    config_path = Path("simple_games.yaml")
+
+    logger.info("Hercule Configuration Display and Training Tests")
+
+    # Display configuration
     display_config()
+
+    # Run training tests
+    run_training_tests(config_path)
 
 
 if __name__ == "__main__":
