@@ -1,8 +1,11 @@
 """Abstract base classes and interfaces for reinforcement learning models."""
 
+import importlib
 import logging
+import pkgutil
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Dict, Type
 
 import gymnasium as gym
 import numpy as np
@@ -16,14 +19,16 @@ logger = logging.getLogger(__name__)
 class RLModel(ABC):
     """Abstract base class for reinforcement learning models."""
 
-    def __init__(self, name: str) -> None:
+    # Class attribute for model name
+    model_name: str = "abstract_RL_model"
+
+    def __init__(self) -> None:
         """
         Initialize the RL model.
 
         Args:
-            name: Model name identifier
+            name: Model name identifier (if None, uses class model_name)
         """
-        self.name = name
         self.is_trained = False
         self._training_metrics: dict[str, ParameterValue] = {}
         self.env: gym.Env | None = None
@@ -145,7 +150,7 @@ class RLModel(ABC):
             raise ValueError(msg)
 
         if not self.is_trained:
-            logger.warning(f"Model {self.name} has not been trained yet")
+            logger.warning(f"Model {self.model_name} has not been trained yet")
 
         episode_rewards = []
         episode_lengths = []
@@ -175,112 +180,83 @@ class RLModel(ABC):
             "std_length": float(np.std(episode_lengths)),
         }
 
-        logger.info(f"Evaluation results for {self.name}: {metrics}")
+        logger.info(f"Evaluation results for {self.model_name}: {metrics}")
         return metrics
 
     def __str__(self) -> str:
         """String representation of the model."""
-        return f"{self.__class__.__name__}(name='{self.name}', trained={self.is_trained})"
+        return f"{self.__class__.__name__}(name='{self.model_name}', trained={self.is_trained})"
 
     def __repr__(self) -> str:
         """Detailed string representation of the model."""
         return self.__str__()
 
 
-class BaselineModel(RLModel):
+def get_available_models() -> dict[str, type[RLModel]]:
     """
-    Simple baseline model for testing purposes.
+    Discover and import all available models dynamically.
 
-    This model takes random actions and serves as a baseline for comparison.
+    This function scans the models directory for subdirectories containing
+    model implementations and imports them automatically.
+
+    Returns:
+        Dictionary mapping model names to their class types
     """
+    models_dict: dict[str, type[RLModel]] = {}
 
-    def __init__(self, name: str = "baseline") -> None:
-        """Initialize the baseline model."""
-        super().__init__(name)
-        self._action_space: gym.Space | None = None
+    # Get the path to the models directory
+    models_dir = Path(__file__).parent
 
-    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
-        """Configure the baseline model."""
-        super().configure(env, hyperparameters)
-        self._action_space = env.action_space
-        logger.info(f"Baseline model configured for environment with action space: {self._action_space}")
+    # Iterate through all subdirectories in the models directory
+    for item in models_dir.iterdir():
+        if item.is_dir() and not item.name.startswith("_") and item.name != "__pycache__":
+            module_name = f"hercule.models.{item.name}"
 
-    def act(self, observation: np.ndarray, training: bool = False) -> int | np.ndarray:
-        """Take a random action."""
-        if self._action_space is None:
-            msg = "Model not configured. Call configure() first."
-            raise ValueError(msg)
-        return self._action_space.sample()
+            try:
+                # Import the module
+                module = importlib.import_module(module_name)
 
-    def learn(
-        self, observation: np.ndarray, action: int | np.ndarray, reward: float, next_observation: np.ndarray, done: bool
-    ) -> None:
-        """Baseline model doesn't learn."""
-        pass
+                # Look for classes that inherit from RLModel
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
 
-    def train(self, env: gym.Env, config: dict[str, ParameterValue], max_iterations: int) -> dict[str, ParameterValue]:
-        """
-        Train the baseline model (which just runs random episodes).
+                    # Check if it's a class that inherits from RLModel
+                    if isinstance(attr, type) and issubclass(attr, RLModel) and attr != RLModel:
+                        # Use the model_name class attribute or fallback to class name
+                        model_name = getattr(attr, "model_name", attr.__name__.lower())
+                        models_dict[model_name] = attr
 
-        Args:
-            env: Gymnasium environment
-            config: Model hyperparameters (unused for baseline)
-            max_iterations: Maximum number of training iterations
+                        logger.debug(f"Discovered model: {model_name} -> {attr.__name__}")
 
-        Returns:
-            Training results and metrics
-        """
-        if not self.env:
-            self.configure(env, config)
+            except ImportError as e:
+                logger.warning(f"Failed to import module {module_name}: {e}")
+            except Exception as e:
+                logger.warning(f"Error processing module {module_name}: {e}")
 
-        if self.env is None:
-            msg = "Model not configured with an environment. Call configure() first."
-            raise ValueError(msg)
+    logger.info(f"Discovered {len(models_dict)} models: {list(models_dict.keys())}")
+    return models_dict
 
-        num_episodes_value = config.get("num_episodes", 100)
-        if isinstance(num_episodes_value, int):
-            num_episodes = min(max_iterations, num_episodes_value)
-        else:
-            num_episodes = min(max_iterations, 100)
-        rewards = []
 
-        for _ in range(num_episodes):
-            observation, _ = self.env.reset()
-            episode_reward = 0.0
-            done = False
+def create_model(model_name: str, **kwargs) -> RLModel:
+    """
+    Create a model instance by name.
 
-            while not done:
-                action = self.act(observation, training=True)
-                next_observation, reward, terminated, truncated, _ = self.env.step(action)
-                done = terminated or truncated
-                episode_reward += float(reward)
-                observation = next_observation
+    Args:
+        model_name: Name of the model to create
+        **kwargs: Additional arguments to pass to the model constructor
 
-            rewards.append(episode_reward)
+    Returns:
+        Model instance
 
-        self.is_trained = True
-        metrics: dict[str, ParameterValue] = {
-            "mean_reward": float(np.mean(rewards)),
-            "std_reward": float(np.std(rewards)),
-            "num_episodes": num_episodes,
-        }
-        self._training_metrics.update(metrics)
+    Raises:
+        ValueError: If model name is not found
+    """
+    available_models = get_available_models()
 
-        return metrics
+    if model_name not in available_models:
+        available_names = list(available_models.keys())
+        msg = f"Model '{model_name}' not found. Available models: {available_names}"
+        raise ValueError(msg)
 
-    def save(self, path: Path) -> None:
-        """Save baseline model (minimal save since it's stateless)."""
-        path.mkdir(parents=True, exist_ok=True)
-        with open(path / "baseline_model.txt", "w", encoding="utf-8") as f:
-            f.write(f"Baseline model: {self.name}\n")
-            f.write(f"Trained: {self.is_trained}\n")
-
-    def load(self, path: Path) -> None:
-        """Load baseline model."""
-        model_file = path / "baseline_model.txt"
-        if model_file.exists():
-            self.is_trained = True
-            logger.info(f"Loaded baseline model from {path}")
-        else:
-            msg = f"No baseline model found at {path}"
-            raise FileNotFoundError(msg)
+    model_class = available_models[model_name]
+    return model_class(**kwargs)

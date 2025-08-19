@@ -21,14 +21,17 @@ class DummyModel(RLModel):
     It randomly selects actions from the available action space on each step.
     """
 
-    def __init__(self, name: str = "dummy") -> None:
+    # Class attribute for model name
+    model_name: str = "dummy"
+
+    def __init__(self) -> None:
         """
         Initialize the dummy model.
 
         Args:
-            name: Model name identifier
+            name: Model name identifier (if None, uses class model_name)
         """
-        super().__init__(name)
+        super().__init__()
         self._action_space: gym.Space | None = None
         self._rng = np.random.default_rng(42)  # Default seed for reproducibility
 
@@ -49,7 +52,9 @@ class DummyModel(RLModel):
             if isinstance(seed_value, int):
                 self._rng = np.random.default_rng(seed_value)
 
-        logger.info(f"Dummy model '{self.name}' configured for environment with action space: {self._action_space}")
+        logger.info(
+            f"Dummy model '{self.model_name}' configured for environment with action space: {self._action_space}"
+        )
 
     def act(self, observation: np.ndarray, training: bool = False) -> int | np.ndarray:
         """
@@ -110,7 +115,7 @@ class DummyModel(RLModel):
         rewards = []
         episode_lengths = []
 
-        logger.info(f"Running {max_iterations} episodes with dummy model '{self.name}'")
+        logger.info(f"Running {max_iterations} episodes with dummy model '{self.model_name}'")
 
         for episode in range(max_iterations):
             observation, _ = self.env.reset()
@@ -166,7 +171,7 @@ class DummyModel(RLModel):
         # Save minimal model information
         model_file = path / "dummy_model.txt"
         with open(model_file, "w", encoding="utf-8") as f:
-            f.write(f"Dummy model: {self.name}\n")
+            f.write(f"Dummy model: {self.model_name}\n")
             f.write(f"Trained: {self.is_trained}\n")
             f.write("Model type: Random action selection\n")
             f.write("Learning: None (dummy model)\n")

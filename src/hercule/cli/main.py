@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from hercule.config import load_config_from_yaml
-from hercule.models.dummy import DummyModel
+from hercule.models import create_model, get_available_models
 from hercule.run import TrainingRunner, create_output_directory
 
 
@@ -101,8 +101,9 @@ def run_training_for_config(config):
     logger = logging.getLogger(__name__)
     results = []
 
-    # Initialize DummyModel for now (TODO: support multiple models from config)
-    dummy_model = DummyModel(name="dummy")
+    # Get all available models
+    available_models = get_available_models()
+    logger.info(f"Available models: {list(available_models.keys())}")
 
     with TrainingRunner(config) as runner:
         # Validate configuration first
@@ -113,27 +114,48 @@ def run_training_for_config(config):
 
         env_names = config.get_environment_names()
 
-        # Get model configurations - for now we'll use dummy model
-        # TODO: Iterate through all models in config
+        # Get model configurations from config
         model_configs = {model.name: config.get_hyperparameters_for_model(model.name) for model in config.models}
-        dummy_hyperparams = model_configs.get("dummy", {"seed": 42})
 
-        for env_name in env_names:
-            click.echo(f"  🏃 Running training: dummy model on {env_name}")
+        # Iterate through all models in config
+        for model_config in config.models:
+            model_name = model_config.name
 
-            # Run training
-            result = runner.run_single_training(
-                model=dummy_model, environment_name=env_name, model_name="dummy", hyperparameters=dummy_hyperparams
-            )
+            # Check if model is available
+            if model_name not in available_models:
+                logger.warning(f"Model '{model_name}' not found in available models: {list(available_models.keys())}")
+                click.echo(f"  ⚠️ Skipping unknown model: {model_name}")
+                continue
 
-            if result.success:
-                click.echo(f"    ✅ Success - Mean reward: {result.metrics.get('mean_reward', 'N/A'):.2f}")
-                logger.info(f"Training successful for dummy on {env_name}")
-            else:
-                click.echo(f"    ❌ Failed: {result.error_message}")
-                logger.error(f"Training failed for dummy on {env_name}: {result.error_message}")
+            # Create model instance
+            try:
+                model = create_model(model_name)
+                logger.info(f"Created model instance: {model_name}")
+            except Exception as e:
+                logger.error(f"Failed to create model '{model_name}': {e}")
+                click.echo(f"  ❌ Failed to create model '{model_name}': {e}")
+                continue
 
-            results.append(result)
+            # Get hyperparameters for this model
+            hyperparams = model_configs.get(model_name, {})
+
+            # Run training for each environment
+            for env_name in env_names:
+                click.echo(f"  🏃 Running training: {model_name} model on {env_name}")
+
+                # Run training
+                result = runner.run_single_training(
+                    model=model, environment_name=env_name, model_name=model_name, hyperparameters=hyperparams
+                )
+
+                if result.success:
+                    click.echo(f"    ✅ Success - Mean reward: {result.metrics.get('mean_reward', 'N/A'):.2f}")
+                    logger.info(f"Training successful for {model_name} on {env_name}")
+                else:
+                    click.echo(f"    ❌ Failed: {result.error_message}")
+                    logger.error(f"Training failed for {model_name} on {env_name}: {result.error_message}")
+
+                results.append(result)
 
     return results
 
