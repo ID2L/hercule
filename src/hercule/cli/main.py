@@ -2,14 +2,19 @@
 
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import click
 
 from hercule.config import load_config_from_yaml
-from hercule.models import create_model, get_available_models
-from hercule.run import TrainingRunner, create_output_directory
+from hercule.models import get_available_models
+from hercule.run import (
+    RunManager,
+    create_output_directory,
+    generate_filename_suffix,
+    save_config_summary,
+    save_evaluation_results,
+)
 
 
 @click.command()
@@ -71,12 +76,15 @@ def cli(config_files: list[Path], output_dir: Path, verbose: int) -> None:
             actual_output_dir = create_output_directory(config)
             click.echo(f"📁 Output directory: {actual_output_dir}")
 
+            # Save configuration summary at the root of the project directory
+            save_config_summary(config, actual_output_dir)
+
             # Store configuration info for summary
             config_info = {"config_file": str(config_file), "config": config, "output_dir": actual_output_dir}
             all_config_info.append(config_info)
 
             # Run training for this configuration
-            config_results = run_training_for_config(config)
+            config_results = run_training_for_config(config, actual_output_dir)
             all_results.extend(config_results)
 
         except Exception as e:
@@ -96,76 +104,119 @@ def cli(config_files: list[Path], output_dir: Path, verbose: int) -> None:
     logger.info("Hercule execution completed")
 
 
-def run_training_for_config(config):
-    """Run training for all model-environment combinations in a configuration."""
+def run_training_for_config(config, output_dir: Path | None = None):
+    """Run training and evaluation for all model-environment combinations in a configuration."""
     logger = logging.getLogger(__name__)
-    results = []
+    training_results = []
+    evaluation_results = []
 
     # Get all available models
     available_models = get_available_models()
     logger.info(f"Available models: {list(available_models.keys())}")
 
-    with TrainingRunner(config) as runner:
+    # Get evaluation configuration
+    evaluation_config = config.get_evaluation_config()
+    if evaluation_config:
+        logger.info(f"Evaluation configuration: {evaluation_config}")
+        click.echo(f"  🎯 Evaluation enabled: {evaluation_config['num_episodes']} episodes")
+
+    with RunManager(config, log_level="INFO") as run_manager:
         # Validate configuration first
-        if not runner.validate_configuration():
+        if not run_manager.validate_configuration():
             logger.error("Environment validation failed")
             click.echo("❌ Environment validation failed")
-            return results
+            return training_results
 
-        env_names = config.get_environment_names()
-
-        # Get model configurations from config
-        model_configs = {model.name: config.get_hyperparameters_for_model(model.name) for model in config.models}
-
-        # Iterate through all models in config
+        # Iterate through all model configurations in config
         for model_config in config.models:
             model_name = model_config.name
 
-            # Check if model is available
-            if model_name not in available_models:
-                logger.warning(f"Model '{model_name}' not found in available models: {list(available_models.keys())}")
-                click.echo(f"  ⚠️ Skipping unknown model: {model_name}")
-                continue
-
             # Create model instance
             try:
-                model = create_model(model_name)
+                model = available_models[model_name]()
                 logger.info(f"Created model instance: {model_name}")
             except Exception as e:
                 logger.error(f"Failed to create model '{model_name}': {e}")
                 click.echo(f"  ❌ Failed to create model '{model_name}': {e}")
                 continue
 
-            # Get hyperparameters for this model
-            hyperparams = model_configs.get(model_name, {})
+            # Get hyperparameters for this specific model configuration
+            hyperparams = model_config.get_hyperparameters_dict()
 
-            # Run training for each environment
-            for env_name in env_names:
-                click.echo(f"  🏃 Running training: {model_name} model on {env_name}")
+            # Run training and evaluation for each environment configuration
+            for env_config in config.get_environment_configs():
+                env_name = env_config.name
+                env_hyperparams = env_config.get_hyperparameters_dict()
 
-                # Run training
-                result = runner.run_single_training(
-                    model=model, environment_name=env_name, model_name=model_name, hyperparameters=hyperparams
+                # Create a unique environment identifier for display
+                env_display_name = env_name
+                if env_hyperparams:
+                    env_display_name = f"{env_name} ({', '.join([f'{k}={v}' for k, v in env_hyperparams.items()])})"
+
+                click.echo(f"  🏃 Running training + evaluation: {model_name} model on {env_display_name}")
+
+                # Run training and evaluation
+                models_dir = output_dir / "models" if output_dir else None
+                training_result, evaluation_result = run_manager.run_training_and_evaluation(
+                    model=model,
+                    environment_name=env_name,
+                    model_name=model_name,
+                    hyperparameters=hyperparams,
+                    evaluation_config=evaluation_config,
+                    environment_hyperparameters=env_hyperparams,
+                    models_dir=models_dir,
                 )
 
-                if result.success:
-                    click.echo(f"    ✅ Success - Mean reward: {result.metrics.get('mean_reward', 'N/A'):.2f}")
+                if training_result.success:
+                    click.echo(
+                        f"    ✅ Training success - Mean reward: {training_result.metrics.get('mean_reward', 0):.2f}"
+                    )
                     logger.info(f"Training successful for {model_name} on {env_name}")
                 else:
-                    click.echo(f"    ❌ Failed: {result.error_message}")
-                    logger.error(f"Training failed for {model_name} on {env_name}: {result.error_message}")
+                    click.echo(f"    ❌ Training failed: {training_result.error_message}")
+                    logger.error(f"Training failed for {model_name} on {env_name}")
 
-                results.append(result)
+                if evaluation_result and evaluation_result.success:
+                    click.echo(
+                        f"    ✅ Evaluation success - Mean reward: {evaluation_result.mean_reward:.2f} ± {evaluation_result.std_reward:.2f}"
+                    )
+                    logger.info(f"Evaluation successful for {model_name} on {env_name}")
+                    evaluation_results.append(evaluation_result)
+                elif evaluation_config:
+                    click.echo("    ⚠️ Evaluation failed or skipped")
+                    logger.warning(f"Evaluation failed for {model_name} on {env_name}")
 
-    return results
+                training_results.append(training_result)
+
+    # Save evaluation results if any
+    if evaluation_results and output_dir:
+        try:
+            # Use the provided output directory
+            eval_output_dir = output_dir / "evaluation"
+            eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate descriptive filename for evaluation results
+            if evaluation_results:
+                # Use the first result to get hyperparameters for naming
+                first_result = evaluation_results[0]
+                param_suffix = generate_filename_suffix(
+                    {}
+                )  # Evaluation results don't have hyperparameters in the same way
+                filename = f"evaluation_results{param_suffix}.json"
+            else:
+                filename = "evaluation_results.json"
+
+            save_evaluation_results(evaluation_results, eval_output_dir, filename)
+            click.echo(f"  📊 Evaluation results saved to {eval_output_dir}")
+        except Exception as e:
+            logger.error(f"Failed to save evaluation results: {e}")
+
+    return training_results
 
 
 def save_combined_results(results, config_info_list, output_dir: Path):
     """Save combined results from all configurations."""
     logger = logging.getLogger(__name__)
-
-    # Create timestamp for unique filenames
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save individual results in their respective configuration directories
     for result in results:
@@ -180,76 +231,23 @@ def save_combined_results(results, config_info_list, output_dir: Path):
 
         if config_info:
             config_output_dir = config_info["output_dir"]
-            results_dir = config_output_dir / "results"
-            results_dir.mkdir(parents=True, exist_ok=True)
 
-            filename = f"{result.environment_name}_{result.model_name}_{timestamp}.json"
-            result_file = results_dir / filename
+            # Generate descriptive filename with hyperparameters
+            param_suffix = generate_filename_suffix(result.hyperparameters, result.environment_hyperparameters)
+            filename = f"{result.environment_name}_{result.model_name}{param_suffix}.json"
+
+            # Save training results directly in training subdirectory
+            training_results_dir = config_output_dir / "training"
+            training_results_dir.mkdir(parents=True, exist_ok=True)
+            result_file = training_results_dir / filename
 
             with open(result_file, "w", encoding="utf-8") as f:
                 json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
 
-            logger.debug(f"Saved result: {result_file}")
+            logger.debug(f"Saved training result: {result_file}")
 
-    # Save global summary results in main output directory
-    global_results_dir = output_dir / "results"
-    global_results_dir.mkdir(parents=True, exist_ok=True)
-
-    summary_file = global_results_dir / f"cli_summary_{timestamp}.json"
-
-    # Prepare configuration data for summary
-    configurations = []
-    for info in config_info_list:
-        config = info["config"]
-        config_dict = config.dict()
-        # Convert Path objects to strings for JSON serialization
-        config_dict["output_dir"] = str(config_dict["output_dir"])
-        configurations.append({"config_file": info["config_file"], "configuration": config_dict})
-
-    summary_data = {
-        "timestamp": timestamp,
-        "total_runs": len(results),
-        "successful_runs": sum(1 for r in results if r.success),
-        "failed_runs": sum(1 for r in results if not r.success),
-        "configurations": configurations,
-        "results": [result.to_dict() for result in results],
-    }
-
-    with open(summary_file, "w", encoding="utf-8") as f:
-        json.dump(summary_data, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"Global summary saved to {summary_file}")
-    click.echo(f"📊 Global summary saved to {global_results_dir}")
-
-    # Also save configuration-specific summaries
-    for info in config_info_list:
-        config = info["config"]
-        config_output_dir = info["output_dir"]
-        config_results_dir = config_output_dir / "results"
-
-        # Filter results for this configuration
-        config_results = [r for r in results if r.environment_name in config.get_environment_names()]
-
-        if config_results:
-            config_summary_file = config_results_dir / f"cli_summary_{timestamp}.json"
-            config_dict = config.dict()
-            config_dict["output_dir"] = str(config_dict["output_dir"])
-
-            config_summary_data = {
-                "timestamp": timestamp,
-                "config_file": info["config_file"],
-                "configuration": config_dict,
-                "total_runs": len(config_results),
-                "successful_runs": sum(1 for r in config_results if r.success),
-                "failed_runs": sum(1 for r in config_results if not r.success),
-                "results": [result.to_dict() for result in config_results],
-            }
-
-            with open(config_summary_file, "w", encoding="utf-8") as f:
-                json.dump(config_summary_data, f, indent=2, ensure_ascii=False)
-
-            logger.info(f"Configuration summary saved to {config_summary_file}")
-            click.echo(f"📊 Configuration '{config.name}' summary saved to {config_results_dir}")
+    logger.info("All training results saved successfully")
+    click.echo("📊 Training results saved")
 
 
 if __name__ == "__main__":

@@ -349,6 +349,24 @@ class EnvironmentManager:
         print(f"Hyperparameters: {hyperparams}")
         return self.factory.get_or_create_environment(env_name, **hyperparams)
 
+    def load_environment_with_hyperparams(self, env_name: str, hyperparams: dict[str, ParameterValue]) -> gym.Env:
+        """
+        Load a Gymnasium environment by name with explicit hyperparameters.
+
+        Args:
+            env_name: Name of the environment to load
+            hyperparams: Explicit hyperparameters to use
+
+        Returns:
+            Loaded Gymnasium environment with specified hyperparameters
+
+        Raises:
+            ValueError: If environment name is not supported
+        """
+        print(f"Loading environment !! : {env_name}")
+        print(f"Hyperparameters: {hyperparams}")
+        return self.factory.get_or_create_environment(env_name, **hyperparams)
+
     def get_environment_info(self, env_name: str) -> EnvironmentInfo:
         """
         Get complete information about an environment.

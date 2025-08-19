@@ -45,7 +45,7 @@ class RLModel(ABC):
         self.env = env
 
     @abstractmethod
-    def act(self, observation: np.ndarray, training: bool = False) -> int | np.ndarray:
+    def act(self, observation: np.ndarray | int, training: bool = False) -> int | float | np.ndarray:
         """
         Select an action given an observation.
 
@@ -54,13 +54,18 @@ class RLModel(ABC):
             training: Whether the model is in training mode
 
         Returns:
-            Action to take in the environment
+            Action to take in the environment (int for discrete, float/array for continuous)
         """
         pass
 
     @abstractmethod
     def learn(
-        self, observation: np.ndarray, action: int | np.ndarray, reward: float, next_observation: np.ndarray, done: bool
+        self,
+        observation: np.ndarray | int,
+        action: int | float | np.ndarray,
+        reward: float,
+        next_observation: np.ndarray | int,
+        done: bool,
     ) -> None:
         """
         Update the model based on a transition.

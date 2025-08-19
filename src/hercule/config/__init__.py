@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 # Type alias for hyperparameter values
-ParameterValue = str | int | float | bool | list[str] | list[int] | list[float] | list[bool]
+ParameterValue = str | int | float | bool | None | list[str] | list[int] | list[float] | list[bool]
 
 
 class HyperParameter(BaseModel):
@@ -42,6 +42,16 @@ class EnvironmentConfig(BaseConfig):
     name: str = Field(..., description="Environment name (Gymnasium environment ID)")
 
 
+class EvaluationConfig(BaseModel):
+    """Configuration for model evaluation after training."""
+
+    num_episodes: int = Field(default=10, ge=1, description="Number of episodes to run during evaluation")
+    max_steps_per_episode: int | None = Field(
+        default=None, ge=1, description="Maximum steps per episode (None for no limit)"
+    )
+    render: bool = Field(default=False, description="Whether to render the environment during evaluation")
+
+
 class HerculeConfig(BaseModel):
     """Main configuration class for Hercule framework."""
 
@@ -58,6 +68,7 @@ class HerculeConfig(BaseModel):
     )
     max_iterations: int = Field(default=1000, ge=1, description="Maximum number of learning iterations")
     output_dir: Path = Field(default=Path("outputs"), description="Directory for saving results and models")
+    evaluation: EvaluationConfig | None = Field(default=None, description="Evaluation configuration after training")
 
     @field_validator("environments")
     @classmethod
@@ -111,6 +122,16 @@ class HerculeConfig(BaseModel):
             elif isinstance(env, str) and env == env_name:
                 return {}
         return {}
+
+    def get_evaluation_config(self) -> dict[str, ParameterValue] | None:
+        """Get evaluation configuration as a dictionary."""
+        if self.evaluation is None:
+            return None
+        return {
+            "num_episodes": self.evaluation.num_episodes,
+            "max_steps_per_episode": self.evaluation.max_steps_per_episode,
+            "render": self.evaluation.render,
+        }
 
 
 def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:
