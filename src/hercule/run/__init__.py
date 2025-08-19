@@ -167,24 +167,29 @@ class TrainingRunner:
 
 def create_output_directory(config: HerculeConfig) -> Path:
     """
-    Create output directory structure.
+    Create output directory structure with configuration-specific subdirectory.
 
     Args:
         config: Hercule configuration
 
     Returns:
-        Path to the created output directory
+        Path to the created output directory (includes config name subdirectory)
     """
-    output_dir = config.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Create main output directory
+    base_output_dir = config.output_dir
+    base_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create subdirectories
+    # Create configuration-specific subdirectory
+    config_output_dir = base_output_dir / config.name
+    config_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create subdirectories within the configuration directory
     subdirs = ["models", "logs", "results"]
     for subdir in subdirs:
-        (output_dir / subdir).mkdir(exist_ok=True)
+        (config_output_dir / subdir).mkdir(exist_ok=True)
 
-    logger.info(f"Output directory created: {output_dir}")
-    return output_dir
+    logger.info(f"Output directory created: {config_output_dir}")
+    return config_output_dir
 
 
 __all__ = [

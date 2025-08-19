@@ -1,4 +1,8 @@
 # Configuration simple pour tester la validation
+
+# Configuration name
+name: "simple_games"
+
 environments:
   - "Taxi-v3"
   - name: "FrozenLake-v1"

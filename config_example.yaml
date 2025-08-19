@@ -1,5 +1,8 @@
 # Example configuration file for Hercule RL framework
 
+# Configuration name for identifying this run and organizing outputs
+name: "example_run"
+
 # List of Gymnasium environments to test
 # Can be either simple names (strings) or configurations with hyperparameters
 environments:

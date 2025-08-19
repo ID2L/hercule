@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+
 # Type alias for hyperparameter values
 ParameterValue = str | int | float | bool | list[str] | list[int] | list[float] | list[bool]
 
@@ -44,6 +45,10 @@ class EnvironmentConfig(BaseConfig):
 class HerculeConfig(BaseModel):
     """Main configuration class for Hercule framework."""
 
+    name: str = Field(
+        default="hercule_run",
+        description="Configuration name for identifying the run and organizing output directories",
+    )
     environments: list[str | EnvironmentConfig] = Field(
         default_factory=lambda: ["CartPole-v1"],
         description="List of Gymnasium environments to test (can be names or configurations)",
