@@ -4,7 +4,7 @@
 name: "simple_games"
 
 environments:
-  # - "Taxi-v3"
+  - "Taxi-v3"
   - name: "FrozenLake-v1"
     hyperparameters:
       - key: "map_name"
@@ -27,7 +27,7 @@ models:
       - key: "discount_factor"
         value: 0.95
       - key: "epsilon"
-        value: 0.1
+        value: 0.2
       - key: "seed"
         value: 42
 

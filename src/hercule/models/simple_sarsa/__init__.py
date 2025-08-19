@@ -165,9 +165,6 @@ class SimpleSarsaModel(RLModel):
         Returns:
             Q-value (0.0 if not initialized)
         """
-        print("state", state)
-        print("action", action)
-        print("q_table", self._q_table)
         return self._q_table[state][action]
 
     def _set_q_value(self, state: int, action: int, value: float) -> None:
@@ -179,8 +176,6 @@ class SimpleSarsaModel(RLModel):
             action: Action index
             value: Q-value to set
         """
-        if state not in self._q_table:
-            raise ValueError(f"State {state} not found in Q-table")
         self._q_table[state][action] = value
 
     def _epsilon_greedy_action(self, state: int, training: bool = False) -> int:
@@ -198,22 +193,14 @@ class SimpleSarsaModel(RLModel):
             # Exploit: choose best action
             if self._num_actions is None:
                 raise ValueError("Number of actions not set")
-            print("exploiting")
-            print(state)
-            print([range(self._num_actions - 1)])
-            print(self._get_q_value(state, 0))
             q_values = [self._get_q_value(state, a) for a in range(self._num_actions - 1)]
-            print("q_values", q_values)
             max_q = max(q_values)
-            print("max_q", max_q)
             best_actions = [a for a, q in enumerate(q_values) if q == max_q]
-            print("best_actions", best_actions)
             return self._rng.choice(best_actions)
         else:
             # Explore: choose random action
             if self._num_actions is None:
                 raise ValueError("Number of actions not set")
-            print("exploring")
             return int(self._rng.integers(0, self._num_actions))
 
     def act(self, observation: int, training: bool = False) -> int:
@@ -257,16 +244,13 @@ class SimpleSarsaModel(RLModel):
 
         # Get current Q-value
         current_q = self._get_q_value(current_state, action)
-        print("current_q", current_q)
         if done:
             # Terminal state: no next action
             next_q = 0.0
         else:
             # Non-terminal state: get Q-value for next state-action pair
             next_action = self._epsilon_greedy_action(next_state, training=True)
-            print("next_action", next_action)
             next_q = self._get_q_value(next_state, next_action)
-            print("next_q", next_q)
 
         # SARSA update rule
         new_q = current_q + self._learning_rate * (reward + self._discount_factor * next_q - current_q)
@@ -299,24 +283,17 @@ class SimpleSarsaModel(RLModel):
 
         logger.info(f"Starting SARSA training for {max_iterations} iterations")
         info = self.env.spec
-        print("info", info)
         # Initialize episode
         observation = self.env.reset()[0]
-        print("starting observation", observation)
         state = observation
         action = self._epsilon_greedy_action(state, training=True)
-        print("starting action", action)
         for iteration in range(max_iterations):
             # Take action and observe result
             next_observation, reward, terminated, truncated, _ = self.env.step(action)
             done = terminated or truncated
-            print("observation", observation)
-            print("next observation", next_observation)
-            print(self._q_table)
             # Learn from this transition
             self.learn(observation, action, float(reward), next_observation, done)
 
-            print("there")
             # Update episode tracking
             current_episode_reward += float(reward)
             current_episode_length += 1
@@ -337,9 +314,7 @@ class SimpleSarsaModel(RLModel):
 
             # Select next action using SARSA (on-policy)
             state = observation
-            print("next state", state)
             action = self._epsilon_greedy_action(state, training=True)
-            print("next action", action)
             # Decay epsilon (only if epsilon_decay > 0)
             if self._epsilon_decay > 0:
                 self._epsilon = max(self._epsilon_min, self._epsilon * (1.0 - self._epsilon_decay))
