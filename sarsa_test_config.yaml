@@ -1,0 +1,54 @@
+# Configuration pour tester l'algorithme SARSA
+
+# Nom de la configuration
+name: "sarsa_test"
+
+# Environnements à tester (tous avec espaces d'action et d'observation discrets)
+environments:
+  - "Taxi-v3"
+  - name: "FrozenLake-v1"
+    hyperparameters:
+      - key: "map_name"
+        value: "4x4"
+      - key: "is_slippery"
+        value: false
+  - name: "FrozenLake-v1"
+    hyperparameters:
+      - key: "map_name"
+        value: "8x8"
+      - key: "is_slippery"
+        value: true
+
+# Modèles SARSA avec différentes configurations
+models:
+  - name: "simple_sarsa"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.1
+      - key: "discount_factor"
+        value: 0.95
+      - key: "epsilon"
+        value: 0.1
+      - key: "seed"
+        value: 42
+  
+  - name: "simple_sarsa"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.2
+      - key: "discount_factor"
+        value: 0.9
+      - key: "epsilon"
+        value: 0.2
+      - key: "epsilon_decay"
+        value: 0.001
+      - key: "epsilon_min"
+        value: 0.05
+      - key: "seed"
+        value: 123
+
+# Nombre maximum d'itérations d'entraînement
+max_iterations: 2000
+
+# Répertoire de sortie
+output_dir: "outputs/sarsa_test"
