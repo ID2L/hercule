@@ -6,8 +6,8 @@ from pathlib import Path
 import gymnasium as gym
 import numpy as np
 
-from src.hercule.config import ParameterValue
-from src.hercule.models import RLModel
+from hercule.config import ParameterValue
+from hercule.models import RLModel
 
 
 logger = logging.getLogger(__name__)

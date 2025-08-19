@@ -6,10 +6,10 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from src.hercule.config import load_config_from_yaml
-from src.hercule.environnements import BoxSpaceInfo, DiscreteSpaceInfo, EnvironmentManager
-from src.hercule.models.dummy import DummyModel
-from src.hercule.run import TrainingRunner, create_output_directory
+from hercule.config import load_config_from_yaml
+from hercule.environnements import BoxSpaceInfo, DiscreteSpaceInfo, EnvironmentManager
+from hercule.models.dummy import DummyModel
+from hercule.run import TrainingRunner, create_output_directory
 
 
 # Setup logging
@@ -189,7 +189,7 @@ def display_config():
                             print(f"     - {key}: {value} ({type(value).__name__})")
 
                 # Get hyperparameters from the environment inspector
-                from src.hercule.environnements import EnvironmentInspector
+                from hercule.environnements import EnvironmentInspector
 
                 inspector = EnvironmentInspector()
                 env_hyperparams = inspector.get_environment_hyperparameters(env)

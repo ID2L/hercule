@@ -8,7 +8,7 @@ import numpy as np
 from gymnasium.envs.registration import registry
 from pydantic import BaseModel
 
-from src.hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
+from hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
 
 
 logger = logging.getLogger(__name__)
