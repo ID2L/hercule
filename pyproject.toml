@@ -33,6 +33,7 @@ pytest = "*"
 pytest-cov = "*"
 
 [tool.poetry.scripts]
+hercule = "hercule.cli:cli"
 gen-doc = "pyscaf.documentation.scripts.parse_doc:gen_doc"
 serve-doc = "pyscaf.documentation.scripts.parse_doc:serve_doc"
 
