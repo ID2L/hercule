@@ -1,0 +1,35 @@
+name: multi_test
+environments:
+  - CartPole-v1
+  - name: LunarLander-v2
+    hyperparameters:
+      - key: gravity
+        value: -10.0
+      - key: enable_wind
+        value: false
+models:
+  - name: simple_model
+    hyperparameters:
+      - key: learning_rate
+        value: 0.01
+      - key: epsilon
+        value: 0.1
+  - name: advanced_model
+    hyperparameters:
+      - key: learning_rate
+        value: 0.0003
+      - key: clip_ratio
+        value: 0.2
+      - key: entropy_coef
+        value: 0.01
+      - key: hidden_layers
+        value: [128, 64]
+      - key: activation_functions
+        value: ["relu", "relu"]
+      - key: use_layer_norm
+        value: [true, true]
+max_iterations: 1000
+output_dir: multi_outputs
+evaluation:
+  num_episodes: 50
+  render: false

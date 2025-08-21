@@ -1,0 +1,26 @@
+name: complex_test
+environments:
+  - name: FrozenLake-v1
+    hyperparameters:
+      - key: map_name
+        value: "4x4"
+      - key: is_slippery
+        value: false
+      - key: render_mode
+        value: "rgb_array"
+models:
+  - name: complex_model
+    hyperparameters:
+      - key: learning_rate
+        value: 0.001
+      - key: hidden_layers
+        value: [64, 64]
+      - key: activation_functions
+        value: ["relu", "tanh"]
+      - key: use_layer_norm
+        value: [true, false]
+max_iterations: 500
+output_dir: complex_outputs
+evaluation:
+  num_episodes: 25
+  render: true

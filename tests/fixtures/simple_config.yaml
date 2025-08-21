@@ -1,0 +1,11 @@
+name: simple_test
+environments:
+  - CartPole-v1
+models:
+  - name: test_model
+    hyperparameters:
+      - key: learning_rate
+        value: 0.01
+      - key: epsilon
+        value: 0.1
+max_iterations: 100

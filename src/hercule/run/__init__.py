@@ -491,43 +491,6 @@ def create_output_directory(config: HerculeConfig) -> Path:
     return config_output_dir
 
 
-def save_config_summary(config: HerculeConfig, config_output_dir: Path) -> None:
-    """
-    Save a summary of the configuration at the root of the project directory.
-
-    Args:
-        config: Hercule configuration
-        config_output_dir: Output directory for this configuration
-    """
-    import json
-    from datetime import datetime
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Create summary data
-    config_dict = config.model_dump()
-    # Convert Path objects to strings for JSON serialization
-    config_dict["output_dir"] = str(config_dict["output_dir"])
-
-    summary_data = {
-        "timestamp": timestamp,
-        "config_name": config.name,
-        "environments": config.get_environment_names(),
-        "models": [model.name for model in config.models],
-        "max_iterations": config.max_iterations,
-        "output_directory": str(config_output_dir),
-        "configuration": config_dict,
-    }
-
-    # Save to config root directory
-    summary_file = config_output_dir / "config_summary.json"
-
-    with open(summary_file, "w", encoding="utf-8") as f:
-        json.dump(summary_data, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"Configuration summary saved to {summary_file}")
-
-
 __all__ = [
     "TrainingProtocol",
     "RunResult",

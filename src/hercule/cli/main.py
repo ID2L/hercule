@@ -10,17 +10,13 @@ from hercule.config import load_config_from_yaml
 from hercule.models import get_available_models
 from hercule.run import (
     RunManager,
-    create_output_directory,
     generate_filename_suffix,
-    save_config_summary,
     save_evaluation_results,
 )
 
 
 @click.command()
-@click.argument(
-    "config_files", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path), metavar="CONFIG_FILES..."
-)
+@click.argument("config_file", type=click.Path(exists=True, path_type=Path), metavar="CONFIG_FILE")
 @click.option(
     "--output-dir",
     "-o",
@@ -31,12 +27,12 @@ from hercule.run import (
 )
 @click.option("--verbose", "-v", count=True, help="Increase verbosity (use -v, -vv, or -vvv for different levels)")
 @click.version_option()
-def cli(config_files: list[Path], output_dir: Path, verbose: int) -> None:
+def cli(config_file: Path, output_dir: Path, verbose: int) -> None:
     """Hercule RL framework CLI.
 
-    Run reinforcement learning experiments using configuration files.
+    Run reinforcement learning experiments using a configuration file.
 
-    CONFIG_FILES: One or more YAML configuration files to process.
+    CONFIG_FILE: YAML configuration file to process.
     """
     # Configure logging based on verbosity level
     log_levels = {
@@ -54,52 +50,48 @@ def cli(config_files: list[Path], output_dir: Path, verbose: int) -> None:
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Starting Hercule with {len(config_files)} configuration file(s)")
+    logger.info(f"Starting Hercule with configuration file: {config_file}")
     logger.info(f"Output directory: {output_dir.absolute()}")
 
-    all_results = []
-    all_config_info = []
+    click.echo(f"\n🎯 Processing {config_file}")
 
-    for config_file in config_files:
-        logger.info(f"Processing configuration: {config_file}")
-        click.echo(f"\n🎯 Processing {config_file}")
+    try:
+        # Load configuration
+        config = load_config_from_yaml(config_file)
 
-        try:
-            # Load configuration
-            config = load_config_from_yaml(config_file)
+        # Override output directory if specified via CLI
+        if output_dir != Path("outputs"):
+            config.output_dir = output_dir
 
-            # Override output directory if specified via CLI
-            if output_dir != Path("outputs"):
-                config.output_dir = output_dir
+        # Create output directory
+        config.output_dir.mkdir(parents=True, exist_ok=True)
+        click.echo(f"📁 Output directory: {config.output_dir}")
 
-            # Create output directory
-            actual_output_dir = create_output_directory(config)
-            click.echo(f"📁 Output directory: {actual_output_dir}")
+        # Save configuration summary at the root of the project directory
+        config_summary_file = config.output_dir / "config_summary.txt"
+        with open(config_summary_file, "w", encoding="utf-8") as f:
+            f.write(str(config))
+        click.echo(f"📄 Configuration summary saved to: {config_summary_file}")
 
-            # Save configuration summary at the root of the project directory
-            save_config_summary(config, actual_output_dir)
+        # # Store configuration info for summary
+        # config_info = {"config_file": str(config_file), "config": config, "output_dir": config.output_dir}
 
-            # Store configuration info for summary
-            config_info = {"config_file": str(config_file), "config": config, "output_dir": actual_output_dir}
-            all_config_info.append(config_info)
+        # # Run training for this configuration
+        # config_results = run_training_for_config(config, config.output_dir)
 
-            # Run training for this configuration
-            config_results = run_training_for_config(config, actual_output_dir)
-            all_results.extend(config_results)
+        # # Save results if we have any
+        # if config_results:
+        #     save_combined_results(config_results, [config_info], output_dir)
+        #     successful_runs = sum(1 for r in config_results if r.success)
+        #     total_runs = len(config_results)
+        #     click.echo(f"\n✅ Hercule execution completed: {successful_runs}/{total_runs} runs successful")
+        # else:
+        #     click.echo("\n⚠️ No results generated")
 
-        except Exception as e:
-            logger.error(f"Failed to process {config_file}: {e}")
-            click.echo(f"❌ Error processing {config_file}: {e}")
-            continue
-
-    # Save combined results if we have any
-    if all_results:
-        save_combined_results(all_results, all_config_info, output_dir)
-        successful_runs = sum(1 for r in all_results if r.success)
-        total_runs = len(all_results)
-        click.echo(f"\n✅ Hercule execution completed: {successful_runs}/{total_runs} runs successful")
-    else:
-        click.echo("\n⚠️ No results generated")
+    except Exception as e:
+        logger.error(f"Failed to process {config_file}: {e}")
+        click.echo(f"❌ Error processing {config_file}: {e}")
+        return
 
     logger.info("Hercule execution completed")
 
