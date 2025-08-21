@@ -150,7 +150,27 @@ class HerculeConfig(BaseModel):
 
     def __repr__(self) -> str:
         """Return a detailed string representation of the configuration."""
-        return f"HerculeConfig({self.__str__()})"
+        config_dict = self.model_dump()
+        
+        # Convert Path objects to strings and format for Python eval
+        def convert_for_python(obj):
+            if isinstance(obj, dict):
+                return "{" + ", ".join(f'"{k}": {convert_for_python(v)}' for k, v in obj.items()) + "}"
+            elif isinstance(obj, list):
+                return "[" + ", ".join(convert_for_python(item) for item in obj) + "]"
+            elif isinstance(obj, Path):
+                return f'Path("{str(obj)}")'
+            elif obj is None:
+                return "None"
+            elif isinstance(obj, bool):
+                return str(obj)
+            elif isinstance(obj, str):
+                return f'"{obj}"'
+            else:
+                return str(obj)
+        
+        config_str = convert_for_python(config_dict)
+        return f"HerculeConfig(**{config_str})"
 
 
 def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:
