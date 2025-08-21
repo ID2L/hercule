@@ -1,10 +1,14 @@
 """Environment management module for Hercule reinforcement learning framework."""
 
+import inspect
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import gymnasium as gym
 import numpy as np
+from gymnasium import Env
 from gymnasium.envs.registration import registry
 from pydantic import BaseModel
 
@@ -12,6 +16,26 @@ from hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
 
 
 logger = logging.getLogger(__name__)
+
+
+def save_environment(env: gym.Env, path: Path) -> bool:
+    spec = env.spec
+    if spec is not None:
+        gym_make_params = inspect.signature(gym.make).parameters
+        spec_dict = {k: v for k, v in spec.__dict__.items() if k in gym_make_params}
+        with open(path, "w") as f:
+            json.dump(spec_dict, f, indent=2)
+        return True
+    return False
+
+
+def load_environment(path: Path) -> gym.Env:
+    with open(path) as f:
+        spec_dict = json.load(f)
+
+    kwargs, base = spec_dict.pop("kwargs", {}), spec_dict
+
+    return gym.make(**base, **kwargs)
 
 
 class SpaceInfo(BaseModel):

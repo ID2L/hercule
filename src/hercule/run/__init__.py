@@ -1,11 +1,13 @@
 """Run module for training execution and result management."""
 
+import json
 import logging
 from pathlib import Path
 from typing import Protocol
 
 import gymnasium as gym
 import numpy as np
+from pydantic import BaseModel, Field
 
 from hercule.config import HerculeConfig, ParameterValue
 from hercule.environnements import EnvironmentManager
@@ -22,6 +24,120 @@ from .evaluation import (
 
 
 logger = logging.getLogger(__name__)
+
+
+class Runner(BaseModel):
+    directory_path: Path = Field(..., description="The path to the directory where the runner will save the results.")
+    _ongoing_epoch: int = Field(default=0, description="")
+    model: RLModel = Field(..., description="The model to run.")
+
+    @staticmethod
+    def load(directory_path: Path):
+        # La fonction load doit créer une instance de la classe runner à partir du chemin indiqué
+        # Pour cela elle doit vérifier si un fichier "run_info.json" existe à l'empacement spécfié
+        # Si il n'existe pas, on renvoie None
+        # Si il existe, alors on instancie une classe du Runner avec les informations récupérer dans {directory_path}/run_info.json
+        # en parsant le contenu du json
+        run_info_file = directory_path / "run_info.json"
+
+        if not run_info_file.exists():
+            return None
+
+        try:
+            with open(run_info_file, encoding="utf-8") as f:
+                run_data = json.load(f)
+
+            # Charger le modèle depuis le chemin sauvegardé
+            model = None
+            if "model_path" in run_data and run_data["model_path"]:
+                model_path = Path(run_data["model_path"])
+                if model_path.exists():
+                    # Créer un modèle vide et le charger
+                    from hercule.models import create_model
+
+                    model = create_model(run_data["model_name"])
+                    model.load(model_path)
+
+            # Créer une instance de Runner avec les données chargées
+            # Note: Pour l'environnement, nous devons le recréer car il ne peut pas être sérialisé
+            # L'utilisateur devra fournir une méthode pour recréer l'environnement
+            # Pour l'instant, nous créons un environnement vide qui devra être configuré après
+            from hercule.models.dummy import DummyModel
+
+            runner = Runner(
+                directory_path=Path(run_data["directory_path"]),
+                _ongoing_epoch=run_data["_ongoing_epoch"],
+                model=model if model else DummyModel(),
+            )
+
+            return runner
+
+        except Exception as e:
+            logger.error(f"Failed to load Runner from {run_info_file}: {e}")
+            return None
+
+    def __str__(self):
+        # la représentation de l'objet en string est un dictionnaire avec les valeurs litérals pour
+        # pour _ongoing_epoch, c'est la valeur
+        # pour le directory_path, c'est la représentation sous forme de string du chemin
+        # pour le model, il faut utliser la méthode load() de RLmodel
+        # pour l'environnemnt, demande moi dans le prompt
+        representation = {
+            "_ongoing_epoch": self._ongoing_epoch,
+            "directory_path": str(self.directory_path),
+            "model": str(self.model) if self.model else None,
+            "environment": f"gym.Env({self.environment.spec.id if self.environment and self.environment.spec else 'Unknown'})"
+            if self.environment
+            else None,
+        }
+        return json.dumps(representation, indent=2, ensure_ascii=False)
+
+    def save(self):
+        # écrit la représentation dans un fichier json à l'emplacement {directory_path}/run_info.json
+        run_info_file = self.directory_path / "run_info.json"
+
+        # Créer le répertoire s'il n'existe pas
+        self.directory_path.mkdir(parents=True, exist_ok=True)
+
+        # Préparer les données à sauvegarder
+        run_data = {
+            "_ongoing_epoch": self._ongoing_epoch,
+            "directory_path": str(self.directory_path),
+            "model_name": self.model.model_name if self.model else None,
+            "environment_name": self.environment.spec.id if self.environment and self.environment.spec else None,
+            "model_path": str(self.directory_path / "model") if self.model else None,
+            "environment_hyperparameters": self.environment.spec.kwargs
+            if self.environment and self.environment.spec
+            else {},
+        }
+
+        # Sauvegarder le modèle séparément
+        if self.model:
+            model_path = self.directory_path / "model"
+            model_path.mkdir(exist_ok=True)
+            self.model.save(model_path)
+
+        # Écrire le fichier run_info.json
+        with open(run_info_file, "w", encoding="utf-8") as f:
+            json.dump(run_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Runner state saved to {run_info_file}")
+
+
+def save_config_summary(config: HerculeConfig, output_dir: Path) -> None:
+    """
+    Save configuration summary to a text file.
+
+    Args:
+        config: Hercule configuration to save
+        output_dir: Directory where to save the summary
+    """
+    summary_file = output_dir / "config_summary.txt"
+
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write(str(config))
+
+    logger.info(f"Configuration summary saved to {summary_file}")
 
 
 def generate_filename_suffix(

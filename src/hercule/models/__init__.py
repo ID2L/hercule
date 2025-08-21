@@ -2,10 +2,9 @@
 
 import importlib
 import logging
-import pkgutil
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Type, cast, final
+from typing import cast, final
 
 import gymnasium as gym
 import numpy as np
@@ -30,8 +29,6 @@ class RLModel(ABC):
         Args:
             name: Model name identifier (if None, uses class model_name)
         """
-        self.is_trained = False
-        self._training_metrics: dict[str, ParameterValue] = {}
         self.env: gym.Env | None = None
 
     @abstractmethod
@@ -89,29 +86,6 @@ class RLModel(ABC):
         """
         pass
 
-    def get_training_metrics(self) -> dict[str, ParameterValue]:
-        """
-        Get training metrics.
-
-        Returns:
-            Dictionary of training metrics
-        """
-        return self._training_metrics.copy()
-
-    def reset_training_metrics(self) -> None:
-        """Reset training metrics."""
-        self._training_metrics.clear()
-
-    def add_metric(self, key: str, value: ParameterValue) -> None:
-        """
-        Add a training metric.
-
-        Args:
-            key: Metric name
-            value: Metric value
-        """
-        self._training_metrics[key] = value
-
     def evaluate(self, num_episodes: int = 10) -> dict[str, float]:
         """
         Evaluate the model on its configured environment.
@@ -128,9 +102,6 @@ class RLModel(ABC):
         if self.env is None:
             msg = "Model not configured with an environment. Call configure() first."
             raise ValueError(msg)
-
-        if not self.is_trained:
-            logger.warning(f"Model {self.model_name} has not been trained yet")
 
         episode_rewards = []
         episode_lengths = []
