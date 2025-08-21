@@ -7,14 +7,13 @@ from typing import TYPE_CHECKING, cast
 
 import gymnasium as gym
 import numpy as np
+from gymnasium.spaces import Discrete
 
 from hercule.config import ParameterValue
+from hercule.environnements.spaces_checker import check_space_is_discrete
 from hercule.environnements.validate_discrete_environment import validate_discrete_environment
 from hercule.models import RLModel
-
-
-if TYPE_CHECKING:
-    from gymnasium.spaces import Discrete
+from hercule.models.epoch_result import EpochResult
 
 
 logger = logging.getLogger(__name__)
@@ -38,10 +37,9 @@ class SimpleSarsaModel(RLModel):
         """Initialize the SARSA model."""
         super().__init__()
         self._q_table: np.ndarray = np.zeros((0, 0), dtype=np.float64)
-        self._action_space: gym.Space[Discrete] | None = None
-        self._observation_space: gym.Space[Discrete] | None = None
-        self._num_actions: int | None = None
-        self._rng = np.random.default_rng(42)
+        self._action_space: Discrete
+        self._observation_space: Discrete
+        self._seed = np.random.default_rng(42)
 
         # Hyperparameters
         self._learning_rate: float = 0.1
@@ -50,7 +48,7 @@ class SimpleSarsaModel(RLModel):
         self._epsilon_decay: float = 0.0  # Default to 0.0 for no decay
         self._epsilon_min: float = 0.0  # Default to 0.0
 
-    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
+    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> bool:
         """
         Configure the SARSA model for a specific environment.
 
@@ -64,15 +62,13 @@ class SimpleSarsaModel(RLModel):
         super().configure(env, hyperparameters)
 
         # Validate environment has discrete spaces
-        discrete_env = validate_discrete_environment(env)
+        if not check_space_is_discrete(env.action_space) or not check_space_is_discrete(env.observation_space):
+            return False
         # Store environment spaces
-        self._action_space = discrete_env.action_space
-        self._observation_space = discrete_env.observation_space
-        # Get number of actions from discrete action space
-        self._num_actions = int(cast("gym.spaces.Discrete", discrete_env.action_space).n)
-        self._q_table = np.zeros(
-            (int(cast("gym.spaces.Discrete", self._observation_space).n), self._num_actions), dtype=np.float64
-        )
+        self._action_space = cast("Discrete", env.action_space)
+        self._observation_space = cast("Discrete", env.observation_space)
+
+        self._q_table = np.zeros((self._observation_space.n, self._action_space.n), dtype=np.float64)
         # Set hyperparameters with validation
         lr = hyperparameters.get("learning_rate", 0.1)
         self._learning_rate = self._validate_hyperparameter(
@@ -103,12 +99,46 @@ class SimpleSarsaModel(RLModel):
         if "seed" in hyperparameters:
             seed_value = hyperparameters["seed"]
             if isinstance(seed_value, int):
-                self._rng = np.random.default_rng(seed_value)
+                self.seed = np.random.default_rng(seed_value)
 
         logger.info(
             f"SARSA model '{self.model_name}' configured for environment with "
             f"discrete action space ({self._num_actions} actions) and "
             f"discrete observation space"
+        )
+        return True
+
+    def run_epoch(self, train_mode=False) -> EpochResult:
+        env = self.check_environment_or_raise()
+
+        observation, _ = env.reset()
+        episode_reward = 0.0
+        episode_length = 0
+        done = False
+
+        action = self.act(observation, training=train_mode)
+        while not done:
+            next_action = self.act(observation, training=train_mode)
+            next_observation, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            episode_reward += float(reward)
+            episode_length += 1
+
+            if train_mode:
+                self._q_table[observation][action] += self._learning_rate * (
+                    float(reward)
+                    + self._discount_factor
+                    + self._q_table[next_observation, next_action]
+                    - self._q_table[observation, action]
+                )
+
+            observation = next_observation
+            action = next_action
+
+        return EpochResult(
+            reward=float(episode_reward),
+            steps_number=episode_length,
+            final_state="truncated" if truncated else "goal_reached",
         )
 
     def _validate_hyperparameter(self, value: float, name: str, min_val: float, max_val: float) -> float:
@@ -189,19 +219,19 @@ class SimpleSarsaModel(RLModel):
         Returns:
             Selected action index
         """
-        if not training or self._rng.random() > self._epsilon:
+        if not training or self.seed.random() > self._epsilon:
             # Exploit: choose best action
             if self._num_actions is None:
                 raise ValueError("Number of actions not set")
             q_values = [self._get_q_value(state, a) for a in range(self._num_actions - 1)]
             max_q = max(q_values)
             best_actions = [a for a, q in enumerate(q_values) if q == max_q]
-            return self._rng.choice(best_actions)
+            return self.seed.choice(best_actions)
         else:
             # Explore: choose random action
             if self._num_actions is None:
                 raise ValueError("Number of actions not set")
-            return int(self._rng.integers(0, self._num_actions))
+            return int(self.seed.integers(0, self._num_actions))
 
     def act(self, observation: int, training: bool = False) -> int:
         """
@@ -223,137 +253,6 @@ class SimpleSarsaModel(RLModel):
 
         state = observation
         return self._epsilon_greedy_action(state, training)
-
-    def learn(self, observation: int, action: int, reward: float, next_observation: int, done: bool) -> None:
-        """
-        Update Q-values using SARSA algorithm.
-
-        Args:
-            observation: Current observation
-            action: Action taken
-            reward: Reward received
-            next_observation: Next observation
-            done: Whether episode is finished
-        """
-        if self._action_space is None:
-            msg = "Model not configured. Call configure() first."
-            raise ValueError(msg)
-
-        current_state = observation
-        next_state = next_observation
-
-        # Get current Q-value
-        current_q = self._get_q_value(current_state, action)
-        if done:
-            # Terminal state: no next action
-            next_q = 0.0
-        else:
-            # Non-terminal state: get Q-value for next state-action pair
-            next_action = self._epsilon_greedy_action(next_state, training=True)
-            next_q = self._get_q_value(next_state, next_action)
-
-        # SARSA update rule
-        new_q = current_q + self._learning_rate * (reward + self._discount_factor * next_q - current_q)
-        self._set_q_value(current_state, action, new_q)
-
-    def train(self, env: gym.Env, config: dict[str, ParameterValue], max_iterations: int) -> dict[str, ParameterValue]:
-        """
-        Train the SARSA model on the given environment.
-
-        Args:
-            env: Gymnasium environment
-            config: Model hyperparameters
-            max_iterations: Maximum number of training iterations
-
-        Returns:
-            Training results and metrics
-        """
-        if not self.env:
-            self.configure(env, config)
-
-        if self.env is None:
-            msg = "Model not configured with an environment. Call configure() first."
-            raise ValueError(msg)
-
-        rewards = []
-        episode_lengths = []
-        episode_rewards = []
-        current_episode_reward = 0.0
-        current_episode_length = 0
-
-        logger.info(f"Starting SARSA training for {max_iterations} iterations")
-        info = self.env.spec
-        # Initialize episode
-        observation = self.env.reset()[0]
-        state = observation
-        action = self._epsilon_greedy_action(state, training=True)
-        for iteration in range(max_iterations):
-            # Take action and observe result
-            next_observation, reward, terminated, truncated, _ = self.env.step(action)
-            done = terminated or truncated
-            # Learn from this transition
-            self.learn(observation, action, float(reward), next_observation, done)
-
-            # Update episode tracking
-            current_episode_reward += float(reward)
-            current_episode_length += 1
-
-            if done:
-                # Episode finished
-                episode_rewards.append(current_episode_reward)
-                episode_lengths.append(current_episode_length)
-                rewards.append(current_episode_reward)
-
-                # Reset for next episode
-                observation, _ = self.env.reset()
-                current_episode_reward = 0.0
-                current_episode_length = 0
-            else:
-                # Continue episode
-                observation = next_observation
-
-            # Select next action using SARSA (on-policy)
-            state = observation
-            action = self._epsilon_greedy_action(state, training=True)
-            # Decay epsilon (only if epsilon_decay > 0)
-            if self._epsilon_decay > 0:
-                self._epsilon = max(self._epsilon_min, self._epsilon * (1.0 - self._epsilon_decay))
-
-            # Log progress every 10% of iterations
-            if (iteration + 1) % max(1, max_iterations // 10) == 0:
-                recent_rewards = rewards[-100:] if len(rewards) >= 100 else rewards
-                avg_reward = np.mean(recent_rewards) if recent_rewards else 0.0
-                logger.info(
-                    f"Iteration {iteration + 1}/{max_iterations}, "
-                    f"Epsilon: {self._epsilon:.3f}, "
-                    f"Avg reward (last 100): {avg_reward:.2f}"
-                )
-
-        self.is_trained = True
-
-        # Calculate training metrics
-        metrics: dict[str, ParameterValue] = {
-            "mean_reward": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
-            "std_reward": float(np.std(episode_rewards)) if episode_rewards else 0.0,
-            "min_reward": float(np.min(episode_rewards)) if episode_rewards else 0.0,
-            "max_reward": float(np.max(episode_rewards)) if episode_rewards else 0.0,
-            "mean_episode_length": float(np.mean(episode_lengths)) if episode_lengths else 0.0,
-            "std_episode_length": float(np.std(episode_lengths)) if episode_lengths else 0.0,
-            "episodes_completed": len(episode_rewards),
-            "final_epsilon": self._epsilon,
-            "q_table_size": len(self._q_table),
-        }
-
-        self._training_metrics.update(metrics)
-
-        logger.info(
-            f"SARSA training completed. "
-            f"Episodes: {len(episode_rewards)}, "
-            f"Mean reward: {metrics['mean_reward']:.2f} ± {metrics['std_reward']:.2f}, "
-            f"Final epsilon: {self._epsilon:.3f}"
-        )
-
-        return metrics
 
     def save(
         self,

@@ -5,12 +5,13 @@ import logging
 import pkgutil
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Type
+from typing import Dict, Type, cast, final
 
 import gymnasium as gym
 import numpy as np
 
 from hercule.config import ParameterValue
+from hercule.models.epoch_result import EpochResult
 
 
 logger = logging.getLogger(__name__)
@@ -58,40 +59,14 @@ class RLModel(ABC):
         """
         pass
 
-    @abstractmethod
-    def learn(
-        self,
-        observation: np.ndarray | int,
-        action: int | float | np.ndarray,
-        reward: float,
-        next_observation: np.ndarray | int,
-        done: bool,
-    ) -> None:
-        """
-        Update the model based on a transition.
-
-        Args:
-            observation: Current observation
-            action: Action taken
-            reward: Reward received
-            next_observation: Next observation
-            done: Whether episode is finished
-        """
-        pass
+    @final
+    def check_environment_or_raise(self) -> gym.Env:
+        if self.env is None:
+            raise ValueError("Environment not configured for {model_name}. Call configure() first.")
+        return cast("gym.Env", self.env)
 
     @abstractmethod
-    def train(self, env: gym.Env, config: dict[str, ParameterValue], max_iterations: int) -> dict[str, ParameterValue]:
-        """
-        Train the model on the given environment.
-
-        Args:
-            env: Gymnasium environment
-            config: Model hyperparameters
-            max_iterations: Maximum number of training iterations
-
-        Returns:
-            Training results and metrics
-        """
+    def run_epoch(self, train_mode=False) -> EpochResult:
         pass
 
     @abstractmethod

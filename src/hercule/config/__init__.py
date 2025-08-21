@@ -1,5 +1,6 @@
 """Configuration module for Hercule reinforcement learning framework."""
 
+import json
 from pathlib import Path
 
 import yaml
@@ -42,13 +43,10 @@ class EnvironmentConfig(BaseConfig):
     name: str = Field(..., description="Environment name (Gymnasium environment ID)")
 
 
-class EvaluationConfig(BaseModel):
+class RunConfig(BaseModel):
     """Configuration for model evaluation after training."""
 
     num_episodes: int = Field(default=10, ge=1, description="Number of episodes to run during evaluation")
-    max_steps_per_episode: int | None = Field(
-        default=None, ge=1, description="Maximum steps per episode (None for no limit)"
-    )
     render: bool = Field(default=False, description="Whether to render the environment during evaluation")
 
 
@@ -68,7 +66,7 @@ class HerculeConfig(BaseModel):
     )
     max_iterations: int = Field(default=1000, ge=1, description="Maximum number of learning iterations")
     output_dir: Path = Field(default=Path("outputs"), description="Directory for saving results and models")
-    evaluation: EvaluationConfig | None = Field(default=None, description="Evaluation configuration after training")
+    evaluation: RunConfig | None = Field(default=None, description="Evaluation configuration after training")
 
     @field_validator("environments")
     @classmethod
@@ -129,9 +127,30 @@ class HerculeConfig(BaseModel):
             return None
         return {
             "num_episodes": self.evaluation.num_episodes,
-            "max_steps_per_episode": self.evaluation.max_steps_per_episode,
             "render": self.evaluation.render,
         }
+
+    def __str__(self) -> str:
+        """Return a formatted string representation of the configuration."""
+        config_dict = self.model_dump()
+
+        # Convert Path objects to strings for JSON serialization
+        def convert_paths(obj):
+            if isinstance(obj, dict):
+                return {k: convert_paths(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_paths(item) for item in obj]
+            elif isinstance(obj, Path):
+                return str(obj)
+            else:
+                return obj
+
+        config_dict = convert_paths(config_dict)
+        return json.dumps(config_dict, indent=2, ensure_ascii=False)
+
+    def __repr__(self) -> str:
+        """Return a detailed string representation of the configuration."""
+        return f"HerculeConfig({self.__str__()})"
 
 
 def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:
@@ -168,22 +187,3 @@ def create_default_config() -> HerculeConfig:
         HerculeConfig: Default configuration instance
     """
     return HerculeConfig()
-
-
-def save_config_to_yaml(config: HerculeConfig, config_path: Path | str) -> None:
-    """
-    Save configuration to a YAML file.
-
-    Args:
-        config: Configuration instance to save
-        config_path: Path where to save the configuration
-    """
-    config_path = Path(config_path)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Convert to dict and handle Path objects
-    config_dict = config.dict()
-    config_dict["output_dir"] = str(config_dict["output_dir"])
-
-    with open(config_path, "w", encoding="utf-8") as file:
-        yaml.dump(config_dict, file, default_flow_style=False, indent=2)

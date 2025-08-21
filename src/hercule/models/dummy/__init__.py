@@ -8,6 +8,7 @@ import numpy as np
 
 from hercule.config import ParameterValue
 from hercule.models import RLModel
+from hercule.models.epoch_result import EpochResult
 
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class DummyModel(RLModel):
         super().__init__()
         self._action_space: gym.Space | None = None
         self._rng = np.random.default_rng(42)  # Default seed for reproducibility
+        self.is_trained = True
 
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
         """
@@ -54,6 +56,28 @@ class DummyModel(RLModel):
 
         logger.info(
             f"Dummy model '{self.model_name}' configured for environment with action space: {self._action_space}"
+        )
+
+    def run_epoch(self, train_mode=False) -> EpochResult:
+        env = self.check_environment_or_raise()
+
+        observation, _ = env.reset()
+        episode_reward = 0.0
+        episode_length = 0
+        done = False
+
+        while not done:
+            action = self.act(observation, training=False)
+            next_observation, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            episode_reward += float(reward)
+            episode_length += 1
+            observation = next_observation
+
+        return EpochResult(
+            reward=float(episode_reward),
+            steps_number=episode_length,
+            final_state="truncated" if truncated else "goal_reached",
         )
 
     def act(self, observation: np.ndarray, training: bool = False) -> int | np.ndarray:

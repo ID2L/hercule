@@ -9,6 +9,8 @@ import numpy as np
 
 from hercule.config import HerculeConfig, ParameterValue
 from hercule.environnements import EnvironmentManager
+from hercule.models import RLModel
+from hercule.models.epoch_result import EpochResult
 
 # Import evaluation module
 from .evaluation import (
@@ -185,71 +187,23 @@ class TrainingRunner:
         self.config = config
         self.env_manager = EnvironmentManager(config)
 
-    def run_single_training(
-        self,
-        model: TrainingProtocol,
-        environment_name: str,
-        model_name: str,
-        hyperparameters: dict[str, ParameterValue],
-    ) -> RunResult:
-        """
-        Run training for a single model-environment combination.
+    def run(self, model: RLModel, env: gym.Env, maximum_episode_number: int = 1000, train_mode: bool = False):
+        episode_counter = 0
+        epochs_results: list[EpochResult] = []
 
-        Args:
-            model: Model implementing TrainingProtocol
-            environment_name: Name of the environment
-            model_name: Name of the model
-            hyperparameters: Model hyperparameters
-
-        Returns:
-            RunResult containing training results
-        """
-        import logging
-
-        training_logger = logging.getLogger("hercule.training")
-
-        try:
-            # Get environment hyperparameters
-            env_hyperparams = self.config.get_hyperparameters_for_environment(environment_name)
-
-            # Load environment
-            env = self.env_manager.load_environment(environment_name)
-            training_logger.info(f"Environment {environment_name} loaded successfully")
-
-            # Run training
-            training_logger.info(f"Starting training with hyperparameters: {hyperparameters}")
-            metrics = model.train(env, hyperparameters, self.config.max_iterations)
-            training_logger.info(f"Training completed with metrics: {metrics}")
-
-            return RunResult(
-                environment_name=environment_name,
-                model_name=model_name,
-                hyperparameters=hyperparameters,
-                metrics=metrics,
-                success=True,
-                environment_hyperparameters=env_hyperparams,
-            )
-        except Exception as e:
-            training_logger.error(f"Training failed for {model_name} on {environment_name}: {e}")
-            return RunResult(
-                environment_name=environment_name,
-                model_name=model_name,
-                hyperparameters=hyperparameters,
-                metrics={},
-                success=False,
-                error_message=str(e),
-                environment_hyperparameters=env_hyperparams,
-            )
+        while episode_counter < maximum_episode_number:
+            model.run_epoch()
+        pass
 
     def run_single_training_with_env_hyperparams(
         self,
-        model: TrainingProtocol,
+        model: RLModel,
         environment_name: str,
         model_name: str,
         hyperparameters: dict[str, ParameterValue],
         environment_hyperparameters: dict[str, ParameterValue] | None = None,
         models_dir: Path | None = None,
-    ) -> RunResult:
+    ) -> tuple[RLModel | None, RunResult]:
         """
         Run training for a single model-environment combination with explicit environment hyperparameters.
 
@@ -262,7 +216,7 @@ class TrainingRunner:
             models_dir: Directory to save the trained model
 
         Returns:
-            RunResult containing training results
+            RunResult containing training model or None (if failed), and metrics
         """
         import logging
 
@@ -289,37 +243,43 @@ class TrainingRunner:
                     model_path = models_dir / model_filename
 
                     # Save the model with environment and hyperparameter information
-                    if hasattr(model, "save"):
-                        model.save(
-                            path=model_path,
-                            environment_name=environment_name,
-                            environment_hyperparameters=environment_hyperparameters or {},
-                            model_hyperparameters=hyperparameters,
-                        )
-                        training_logger.info(f"Model saved to {model_path}")
-                    else:
-                        training_logger.warning(f"Model {model_name} does not implement save method")
+                    # if hasattr(model, "save"):
+                    #     model.save(
+                    #         path=model_path,
+                    #         environment_name=environment_name,
+                    #         environment_hyperparameters=environment_hyperparameters or {},
+                    #         model_hyperparameters=hyperparameters,
+                    #     )
+                    #     training_logger.info(f"Model saved to {model_path}")
+                    # else:
+                    #     training_logger.warning(f"Model {model_name} does not implement save method")
                 except Exception as e:
                     training_logger.error(f"Failed to save model: {e}")
 
-            return RunResult(
-                environment_name=environment_name,
-                model_name=model_name,
-                hyperparameters=hyperparameters,
-                metrics=metrics,
-                success=True,
-                environment_hyperparameters=environment_hyperparameters or {},
+            return (
+                model,
+                RunResult(
+                    environment_name=environment_name,
+                    model_name=model_name,
+                    hyperparameters=hyperparameters,
+                    metrics=metrics,
+                    success=True,
+                    environment_hyperparameters=environment_hyperparameters or {},
+                ),
             )
         except Exception as e:
             training_logger.error(f"Training failed for {model_name} on {environment_name}: {e}")
-            return RunResult(
-                environment_name=environment_name,
-                model_name=model_name,
-                hyperparameters=hyperparameters,
-                metrics={},
-                success=False,
-                error_message=str(e),
-                environment_hyperparameters=environment_hyperparameters or {},
+            return (
+                None,
+                RunResult(
+                    environment_name=environment_name,
+                    model_name=model_name,
+                    hyperparameters=hyperparameters,
+                    metrics={},
+                    success=False,
+                    error_message=str(e),
+                    environment_hyperparameters=environment_hyperparameters or {},
+                ),
             )
 
     def validate_configuration(self) -> bool:
@@ -405,14 +365,14 @@ class RunManager:
 
     def run_training_and_evaluation(
         self,
-        model: TrainingProtocol,
+        model: RLModel,
         environment_name: str,
         model_name: str,
         hyperparameters: dict[str, ParameterValue],
         evaluation_config: dict[str, ParameterValue] | None = None,
         environment_hyperparameters: dict[str, ParameterValue] | None = None,
         models_dir: Path | None = None,
-    ) -> tuple[RunResult, EvaluationResult | None]:
+    ) -> tuple[RLModel, EvaluationResult | None] | None:
         """
         Run training followed by evaluation.
 
@@ -433,7 +393,7 @@ class RunManager:
         evaluation_logger = logging.getLogger("hercule.evaluation")
 
         # Run training first
-        training_result = self.training_runner.run_single_training_with_env_hyperparams(
+        trained_model = self.training_runner.run_single_training_with_env_hyperparams(
             model=model,
             environment_name=environment_name,
             model_name=model_name,
@@ -444,7 +404,7 @@ class RunManager:
 
         # Run evaluation if training was successful and evaluation config provided
         evaluation_result = None
-        if training_result.success and evaluation_config:
+        if trained_model[0] is not None and evaluation_config:
             try:
                 evaluation_logger.info(f"Starting evaluation for {model_name} on {environment_name}")
 
@@ -458,7 +418,7 @@ class RunManager:
                 render_bool = bool(render) if isinstance(render, bool) else False
 
                 evaluation_result = self.evaluator.evaluate_model_with_hyperparams(
-                    model=model,
+                    model=trained_model[0],
                     environment_name=environment_name,
                     model_name=model_name,
                     environment_hyperparameters=environment_hyperparameters,
@@ -477,7 +437,7 @@ class RunManager:
             except Exception as e:
                 evaluation_logger.error(f"Evaluation failed after successful training: {e}")
 
-        return training_result, evaluation_result
+            return trained_model[0], evaluation_result
 
     def validate_configuration(self) -> bool:
         """

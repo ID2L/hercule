@@ -60,7 +60,7 @@ evaluation:
   render: false
 
 # Nombre maximum d'itérations d'entraînement
-max_iterations: 2000
+max_iterations: 200
 
 # Répertoire de sortie
 output_dir: "outputs/sarsa_test"
