@@ -151,7 +151,7 @@ class HerculeConfig(BaseModel):
     def __repr__(self) -> str:
         """Return a detailed string representation of the configuration."""
         config_dict = self.model_dump()
-        
+
         # Convert Path objects to strings and format for Python eval
         def convert_for_python(obj):
             if isinstance(obj, dict):
@@ -168,7 +168,7 @@ class HerculeConfig(BaseModel):
                 return f'"{obj}"'
             else:
                 return str(obj)
-        
+
         config_str = convert_for_python(config_dict)
         return f"HerculeConfig(**{config_str})"
 
