@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import gymnasium as gym
 import numpy as np
@@ -13,6 +13,17 @@ from hercule.config import HerculeConfig, ParameterValue
 from hercule.environnements import EnvironmentManager
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
+
+
+# Type checking imports
+if TYPE_CHECKING:
+    from typing import Any
+
+    ModelType = RLModel
+else:
+    from typing import Any
+
+    ModelType = Any
 
 # Import evaluation module
 from .evaluation import (
@@ -28,8 +39,8 @@ logger = logging.getLogger(__name__)
 
 class Runner(BaseModel):
     directory_path: Path = Field(..., description="The path to the directory where the runner will save the results.")
-    _ongoing_epoch: int = Field(default=0, description="")
-    model: RLModel = Field(..., description="The model to run.")
+    ongoing_epoch: int = Field(default=0, description="")
+    model: ModelType = Field(..., description="The model to run.")
 
     @staticmethod
     def load(directory_path: Path):
@@ -66,7 +77,7 @@ class Runner(BaseModel):
 
             runner = Runner(
                 directory_path=Path(run_data["directory_path"]),
-                _ongoing_epoch=run_data["_ongoing_epoch"],
+                ongoing_epoch=run_data["_ongoing_epoch"],
                 model=model if model else DummyModel(),
             )
 
@@ -83,7 +94,7 @@ class Runner(BaseModel):
         # pour le model, il faut utliser la méthode load() de RLmodel
         # pour l'environnemnt, demande moi dans le prompt
         representation = {
-            "_ongoing_epoch": self._ongoing_epoch,
+            "_ongoing_epoch": self.ongoing_epoch,
             "directory_path": str(self.directory_path),
             "model": str(self.model) if self.model else None,
             "environment": f"gym.Env({self.environment.spec.id if self.environment and self.environment.spec else 'Unknown'})"
@@ -101,7 +112,7 @@ class Runner(BaseModel):
 
         # Préparer les données à sauvegarder
         run_data = {
-            "_ongoing_epoch": self._ongoing_epoch,
+            "_ongoing_epoch": self.ongoing_epoch,
             "directory_path": str(self.directory_path),
             "model_name": self.model.model_name if self.model else None,
             "environment_name": self.environment.spec.id if self.environment and self.environment.spec else None,
