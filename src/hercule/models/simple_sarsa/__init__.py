@@ -59,8 +59,6 @@ class SimpleSarsaModel(RLModel):
         Raises:
             ValueError: If environment does not have discrete action and observation spaces
         """
-        super().configure(env, hyperparameters)
-
         # Validate environment has discrete spaces
         if not check_space_is_discrete(env.action_space) or not check_space_is_discrete(env.observation_space):
             return False
@@ -103,8 +101,8 @@ class SimpleSarsaModel(RLModel):
 
         logger.info(
             f"SARSA model '{self.model_name}' configured for environment with "
-            f"discrete action space ({self._num_actions} actions) and "
-            f"discrete observation space"
+            f"discrete action space ({self._action_space.n} actions) and "
+            f"discrete observation space ({self._observation_space.n} states)"
         )
         return True
 
@@ -277,25 +275,6 @@ class SimpleSarsaModel(RLModel):
 
         # Prepare model data for JSON serialization
         model_data = {
-            "model_info": {
-                "model_name": self.model_name,
-                "model_type": "simple_sarsa",
-                "is_trained": self.is_trained,
-                "q_table_size": len(self._q_table),
-                "num_actions": self._num_actions,
-            },
-            "environment_info": {
-                "environment_name": environment_name,
-                "environment_hyperparameters": environment_hyperparameters or {},
-            },
-            "model_hyperparameters": {
-                "learning_rate": self._learning_rate,
-                "discount_factor": self._discount_factor,
-                "epsilon": self._epsilon,
-                "epsilon_decay": self._epsilon_decay,
-                "epsilon_min": self._epsilon_min,
-                **(model_hyperparameters or {}),
-            },
             "training_metrics": self._training_metrics,
             "q_table": json_q_table,
         }
@@ -306,24 +285,6 @@ class SimpleSarsaModel(RLModel):
             import json
 
             json.dump(model_data, f, indent=2, ensure_ascii=False)
-
-        # Also save the legacy pickle format for backward compatibility
-        legacy_data = {
-            "q_table": self._q_table,
-            "learning_rate": self._learning_rate,
-            "discount_factor": self._discount_factor,
-            "epsilon": self._epsilon,
-            "epsilon_decay": self._epsilon_decay,
-            "epsilon_min": self._epsilon_min,
-            "num_actions": self._num_actions,
-            "is_trained": self.is_trained,
-            "training_metrics": self._training_metrics,
-        }
-
-        legacy_file = path / "sarsa_model.pkl"
-        with open(legacy_file, "wb") as f:
-            pickle.dump(legacy_data, f)
-
         logger.info(f"SARSA model saved to {path} (JSON: {model_file}, Legacy: {legacy_file})")
 
     def load(self, path: Path) -> None:
@@ -337,7 +298,6 @@ class SimpleSarsaModel(RLModel):
             FileNotFoundError: If model file is not found
         """
         json_file = path / "sarsa_model.json"
-        pkl_file = path / "sarsa_model.pkl"
 
         # Try to load JSON format first, fall back to pickle
         if json_file.exists():
@@ -350,38 +310,13 @@ class SimpleSarsaModel(RLModel):
             self._q_table = np.array(model_data["q_table"])
 
             # Restore model state from JSON structure
-            model_hyperparams = model_data["model_hyperparameters"]
-            self._learning_rate = model_hyperparams["learning_rate"]
-            self._discount_factor = model_hyperparams["discount_factor"]
-            self._epsilon = model_hyperparams["epsilon"]
-            self._epsilon_decay = model_hyperparams["epsilon_decay"]
-            self._epsilon_min = model_hyperparams["epsilon_min"]
-            self._num_actions = model_data["model_info"]["num_actions"]
-            self.is_trained = model_data["model_info"]["is_trained"]
             self._training_metrics = model_data.get("training_metrics", {})
 
             logger.info(f"Loaded SARSA model from JSON: {json_file}")
 
-        elif pkl_file.exists():
-            # Load legacy pickle format
-            with open(pkl_file, "rb") as f:
-                model_data = pickle.load(f)
-
-            # Restore model state
-            self._q_table = model_data["q_table"]
-            self._learning_rate = model_data["learning_rate"]
-            self._discount_factor = model_data["discount_factor"]
-            self._epsilon = model_data["epsilon"]
-            self._epsilon_decay = model_data["epsilon_decay"]
-            self._epsilon_min = model_data["epsilon_min"]
-            self._num_actions = model_data["num_actions"]
-            self.is_trained = model_data["is_trained"]
-            self._training_metrics = model_data.get("training_metrics", {})
-
-            logger.info(f"Loaded SARSA model from pickle: {pkl_file}")
         else:
-            msg = f"No SARSA model found at {path} (looked for {json_file} and {pkl_file})"
-            raise FileNotFoundError(msg)
+            msg = f"No SARSA model found at {path} (looked for {json_file})"
+            logger.info(msg)
 
         # Note: Environment needs to be configured separately after loading
         # as it cannot be serialized

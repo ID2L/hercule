@@ -36,7 +36,7 @@ def display_config():
         print("=" * 60)
 
         print("\nGeneral Settings:")
-        print(f"  Max iterations: {config.max_iterations}")
+        print(f"  Max iterations: {config.learn_max_epoch}")
         print(f"  Output directory: {config.output_dir}")
 
         # Display environments using config methods and environment manager

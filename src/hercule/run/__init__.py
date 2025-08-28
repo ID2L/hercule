@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Protocol
 
 import gymnasium as gym
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from hercule.config import HerculeConfig, ParameterValue
-from hercule.environnements import EnvironmentManager
+from hercule.environnements import EnvironmentManager, save_environment
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
 
@@ -38,12 +38,16 @@ logger = logging.getLogger(__name__)
 
 
 class Runner(BaseModel):
-    directory_path: Path = Field(..., description="The path to the directory where the runner will save the results.")
     ongoing_epoch: int = Field(default=0, description="")
-    model: ModelType = Field(..., description="The model to run.")
+    learning_metrics: list[EpochResult] = Field(default=[], description="")
+    directory_path: Path = Field(default=Path("."), description="")
+    model: RLModel | None = Field(default=None, description="")
+    environment: gym.Env | None = Field(default=None, description="")
 
-    @staticmethod
-    def load(directory_path: Path):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def load(cls, directory_path: Path):
         # La fonction load doit créer une instance de la classe runner à partir du chemin indiqué
         # Pour cela elle doit vérifier si un fichier "run_info.json" existe à l'empacement spécfié
         # Si il n'existe pas, on renvoie None
@@ -52,40 +56,16 @@ class Runner(BaseModel):
         run_info_file = directory_path / "run_info.json"
 
         if not run_info_file.exists():
-            return None
+            return Runner(ongoing_epoch=0)
 
         try:
             with open(run_info_file, encoding="utf-8") as f:
                 run_data = json.load(f)
-
-            # Charger le modèle depuis le chemin sauvegardé
-            model = None
-            if "model_path" in run_data and run_data["model_path"]:
-                model_path = Path(run_data["model_path"])
-                if model_path.exists():
-                    # Créer un modèle vide et le charger
-                    from hercule.models import create_model
-
-                    model = create_model(run_data["model_name"])
-                    model.load(model_path)
-
-            # Créer une instance de Runner avec les données chargées
-            # Note: Pour l'environnement, nous devons le recréer car il ne peut pas être sérialisé
-            # L'utilisateur devra fournir une méthode pour recréer l'environnement
-            # Pour l'instant, nous créons un environnement vide qui devra être configuré après
-            from hercule.models.dummy import DummyModel
-
-            runner = Runner(
-                directory_path=Path(run_data["directory_path"]),
-                ongoing_epoch=run_data["_ongoing_epoch"],
-                model=model if model else DummyModel(),
-            )
-
-            return runner
+            return Runner(**run_data, directory_path=directory_path)
 
         except Exception as e:
             logger.error(f"Failed to load Runner from {run_info_file}: {e}")
-            return None
+            raise e
 
     def __str__(self):
         # la représentation de l'objet en string est un dictionnaire avec les valeurs litérals pour
@@ -95,44 +75,48 @@ class Runner(BaseModel):
         # pour l'environnemnt, demande moi dans le prompt
         representation = {
             "_ongoing_epoch": self.ongoing_epoch,
-            "directory_path": str(self.directory_path),
             "model": str(self.model) if self.model else None,
-            "environment": f"gym.Env({self.environment.spec.id if self.environment and self.environment.spec else 'Unknown'})"
+            "environment": f"gym.Env({self.model.environment.spec.id if self.model.environment and self.model.environment.spec else 'Unknown'})"
             if self.environment
             else None,
         }
         return json.dumps(representation, indent=2, ensure_ascii=False)
 
-    def save(self):
+    def save(self, directory_path: Path):
         # écrit la représentation dans un fichier json à l'emplacement {directory_path}/run_info.json
-        run_info_file = self.directory_path / "run_info.json"
+        run_info_file = directory_path / "run_info.json"
 
         # Créer le répertoire s'il n'existe pas
-        self.directory_path.mkdir(parents=True, exist_ok=True)
+        directory_path.mkdir(parents=True, exist_ok=True)
 
         # Préparer les données à sauvegarder
         run_data = {
-            "_ongoing_epoch": self.ongoing_epoch,
             "directory_path": str(self.directory_path),
-            "model_name": self.model.model_name if self.model else None,
-            "environment_name": self.environment.spec.id if self.environment and self.environment.spec else None,
-            "model_path": str(self.directory_path / "model") if self.model else None,
-            "environment_hyperparameters": self.environment.spec.kwargs
-            if self.environment and self.environment.spec
-            else {},
+            "_ongoing_epoch": self.ongoing_epoch,
+            "learning_metrics": [metric.model_dump() for metric in self.learning_metrics],
         }
-
-        # Sauvegarder le modèle séparément
-        if self.model:
-            model_path = self.directory_path / "model"
-            model_path.mkdir(exist_ok=True)
-            self.model.save(model_path)
 
         # Écrire le fichier run_info.json
         with open(run_info_file, "w", encoding="utf-8") as f:
             json.dump(run_data, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Runner state saved to {run_info_file}")
+
+    def configure(self, model: RLModel, environment: gym.Env):
+        self.model = model
+        self.environment = environment
+
+    def learn(self, max_epoch: int = 1000, save_every_n_epoch: int = 10):
+        if self.model is None or self.environment is None:
+            raise ValueError("Model and environment must be configured before learning")
+
+        for episode in range(self.ongoing_epoch, max_epoch):
+            epoch_result = self.model.run_epoch(train_mode=True)
+            self.learning_metrics.append(epoch_result)
+            self.ongoing_epoch += 1
+            if self.ongoing_epoch % save_every_n_epoch == 0:
+                self.save(self.directory_path)
+                self.model.save(self.directory_path)
 
 
 def save_config_summary(config: HerculeConfig, output_dir: Path) -> None:
@@ -358,7 +342,7 @@ class TrainingRunner:
 
             # Run training
             training_logger.info(f"Starting training with hyperparameters: {hyperparameters}")
-            metrics = model.train(env, hyperparameters, self.config.max_iterations)
+            metrics = model.train(env, hyperparameters, self.config.learn_max_epoch)
             training_logger.info(f"Training completed with metrics: {metrics}")
 
             # Save the trained model if training was successful and models_dir is provided

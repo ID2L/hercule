@@ -25,7 +25,7 @@ class TestHerculeConfigYAML:
         assert config.environments == ["CartPole-v1"]
         assert len(config.models) == 1
         assert config.models[0].name == "test_model"
-        assert config.max_iterations == 100
+        assert config.learn_max_epoch == 100
 
     def test_load_yaml_config_with_models(self, temp_test_dir):
         """Test loading a YAML configuration with models and hyperparameters."""
@@ -72,7 +72,7 @@ class TestHerculeConfigYAML:
         assert len(config.environments) == 2
         assert config.environments[0] == "CartPole-v1"
         assert config.environments[1].name == "LunarLander-v2"
-        assert config.max_iterations == 1000
+        assert config.learn_max_epoch == 1000
         assert str(config.output_dir) == "multi_outputs"
 
         # Test models
@@ -114,7 +114,7 @@ invalid: [unclosed: bracket
         invalid_config_content = """
 name: invalid_config
 environments: []  # Empty environments list should fail validation
-max_iterations: 1000
+learn_max_epoch: 1000
 """
         config_file = temp_test_dir / "validation_error_config.yaml"
         config_file.write_text(invalid_config_content)
@@ -128,7 +128,7 @@ max_iterations: 1000
 name: string_path_test
 environments:
   - CartPole-v1
-max_iterations: 500
+learn_max_epoch: 500
 """
         config_file = temp_test_dir / "string_path_config.yaml"
         config_file.write_text(yaml_content)
@@ -137,7 +137,7 @@ max_iterations: 500
 
         assert config.name == "string_path_test"
         assert config.environments == ["CartPole-v1"]
-        assert config.max_iterations == 500
+        assert config.learn_max_epoch == 500
 
     def test_load_yaml_config_default_values(self, temp_test_dir):
         """Test that YAML config uses default values when not specified."""
@@ -152,7 +152,7 @@ environments:
         config = load_config_from_yaml(config_file)
 
         # Should use default values
-        assert config.max_iterations == 1000
+        assert config.learn_max_epoch == 1000
         assert str(config.output_dir) == "outputs"
         assert config.evaluation is None
         assert config.models == []

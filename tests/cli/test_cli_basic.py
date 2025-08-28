@@ -26,7 +26,7 @@ class TestCLIBasic:
         assert config.environments == ["CartPole-v1"]
         assert len(config.models) == 1
         assert config.models[0].name == "test_model"
-        assert config.max_iterations == 100
+        assert config.learn_max_epoch == 100
 
     def test_cli_loads_complex_config(self, temp_test_dir, change_to_temp_dir):
         """Test that CLI can load a complex configuration file."""
@@ -44,7 +44,7 @@ class TestCLIBasic:
         assert len(config.environments[0].hyperparameters) == 3
         assert len(config.models) == 1
         assert config.models[0].name == "complex_model"
-        assert config.max_iterations == 500
+        assert config.learn_max_epoch == 500
         assert config.evaluation is not None
         assert config.evaluation.num_episodes == 25
 
@@ -65,7 +65,7 @@ class TestCLIBasic:
         assert len(config.models) == 2
         assert config.models[0].name == "simple_model"
         assert config.models[1].name == "advanced_model"
-        assert config.max_iterations == 1000
+        assert config.learn_max_epoch == 1000
 
     def test_cli_saves_config_summary(self, temp_test_dir, change_to_temp_dir):
         """Test that CLI saves configuration summary to file."""

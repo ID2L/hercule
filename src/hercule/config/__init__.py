@@ -64,7 +64,7 @@ class HerculeConfig(BaseModel):
     models: list[ModelConfig] = Field(
         default_factory=list, description="List of models to test with their configurations"
     )
-    max_iterations: int = Field(default=1000, ge=1, description="Maximum number of learning iterations")
+    learn_max_epoch: int = Field(default=1000, ge=1, description="Maximum number of learning iterations")
     output_dir: Path = Field(default=Path("outputs"), description="Directory for saving results and models")
     evaluation: RunConfig | None = Field(default=None, description="Evaluation configuration after training")
 
@@ -171,6 +171,10 @@ class HerculeConfig(BaseModel):
 
         config_str = convert_for_python(config_dict)
         return f"HerculeConfig(**{config_str})"
+
+    def get_directory_for(self, model: ModelConfig, environment: EnvironmentConfig) -> Path:
+        """Get the directory for a specific model and environment."""
+        return self.output_dir / self.name / environment.name / model.name
 
 
 def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:

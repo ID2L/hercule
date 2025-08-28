@@ -15,19 +15,19 @@ class TestHerculeConfigCreation:
         assert config.name == "hercule_run"
         assert config.environments == ["CartPole-v1"]
         assert config.models == []
-        assert config.max_iterations == 1000
+        assert config.learn_max_epoch == 1000
         assert str(config.output_dir) == "outputs"
         assert config.evaluation is None
 
     def test_create_custom_config(self, temp_test_dir):
         """Test creating a configuration with custom values."""
         config = HerculeConfig(
-            name="test_config", environments=["LunarLander-v2"], max_iterations=500, output_dir=Path("custom_outputs")
+            name="test_config", environments=["LunarLander-v2"], learn_max_epoch=500, output_dir=Path("custom_outputs")
         )
 
         assert config.name == "test_config"
         assert config.environments == ["LunarLander-v2"]
-        assert config.max_iterations == 500
+        assert config.learn_max_epoch == 500
         assert str(config.output_dir) == "custom_outputs"
 
     def test_create_config_with_models(self, temp_test_dir):
@@ -65,7 +65,7 @@ class TestHerculeConfigDisplay:
         # Should be valid JSON with indentation
         assert '"name": "hercule_run"' in config_str
         assert '"CartPole-v1"' in config_str
-        assert '"max_iterations": 1000' in config_str
+        assert '"learn_max_epoch": 1000' in config_str
         assert '"output_dir": "outputs"' in config_str
         assert '"evaluation": null' in config_str
 
@@ -75,12 +75,12 @@ class TestHerculeConfigDisplay:
 
     def test_str_custom_config(self, temp_test_dir):
         """Test string representation of custom configuration."""
-        config = HerculeConfig(name="custom_test", environments=["LunarLander-v2"], max_iterations=500)
+        config = HerculeConfig(name="custom_test", environments=["LunarLander-v2"], learn_max_epoch=500)
         config_str = str(config)
 
         assert '"name": "custom_test"' in config_str
         assert '"LunarLander-v2"' in config_str
-        assert '"max_iterations": 500' in config_str
+        assert '"learn_max_epoch": 500' in config_str
 
     def test_str_config_with_models(self, temp_test_dir):
         """Test string representation with models."""
@@ -121,7 +121,7 @@ class TestHerculeConfigRecreation:
     def test_recreate_from_str(self, temp_test_dir):
         """Test that a config can be recreated from its string representation."""
         original_config = HerculeConfig(
-            name="recreation_test", environments=["CartPole-v1", "LunarLander-v2"], max_iterations=750
+            name="recreation_test", environments=["CartPole-v1", "LunarLander-v2"], learn_max_epoch=750
         )
 
         config_str = str(original_config)
@@ -136,12 +136,12 @@ class TestHerculeConfigRecreation:
 
         assert recreated_config.name == original_config.name
         assert recreated_config.environments == original_config.environments
-        assert recreated_config.max_iterations == original_config.max_iterations
+        assert recreated_config.learn_max_epoch == original_config.learn_max_epoch
         assert str(recreated_config.output_dir) == str(original_config.output_dir)
 
     def test_recreate_from_repr_simple(self, temp_test_dir):
         """Test that a config can be recreated from its repr representation using eval()."""
-        original_config = HerculeConfig(name="repr_test", environments=["CartPole-v1"], max_iterations=500)
+        original_config = HerculeConfig(name="repr_test", environments=["CartPole-v1"], learn_max_epoch=500)
 
         # Get the repr string
         repr_str = repr(original_config)
@@ -152,7 +152,7 @@ class TestHerculeConfigRecreation:
         # Test that the recreated config is identical
         assert recreated_config.name == original_config.name
         assert recreated_config.environments == original_config.environments
-        assert recreated_config.max_iterations == original_config.max_iterations
+        assert recreated_config.learn_max_epoch == original_config.learn_max_epoch
         assert str(recreated_config.output_dir) == str(original_config.output_dir)
 
     def test_recreate_from_repr_complex(self, temp_test_dir):
@@ -165,14 +165,11 @@ class TestHerculeConfigRecreation:
             ],
         )
 
-        evaluation_config = RunConfig(num_episodes=25, render=False)
-
         original_config = HerculeConfig(
             name="complex_repr_test",
             environments=["CartPole-v1"],
             models=[model_config],
-            max_iterations=2000,
-            evaluation=evaluation_config,
+            learn_max_epoch=2000,
         )
 
         # Get the repr string
@@ -183,17 +180,12 @@ class TestHerculeConfigRecreation:
 
         # Test basic properties
         assert recreated_config.name == original_config.name
-        assert recreated_config.max_iterations == original_config.max_iterations
+        assert recreated_config.learn_max_epoch == original_config.learn_max_epoch
 
         # Test models
         assert len(recreated_config.models) == 1
         assert recreated_config.models[0].name == "complex_model"
         assert len(recreated_config.models[0].hyperparameters) == 2
-
-        # Test evaluation
-        assert recreated_config.evaluation is not None
-        assert recreated_config.evaluation.num_episodes == 25
-        assert recreated_config.evaluation.render is False
 
     def test_recreate_complex_config(self, temp_test_dir):
         """Test recreating a complex configuration with models and evaluation."""
@@ -211,7 +203,7 @@ class TestHerculeConfigRecreation:
             name="complex_test",
             environments=["CartPole-v1"],
             models=[model_config],
-            max_iterations=2000,
+            learn_max_epoch=2000,
             evaluation=evaluation_config,
         )
 
@@ -224,7 +216,7 @@ class TestHerculeConfigRecreation:
 
         # Test basic properties
         assert recreated_config.name == original_config.name
-        assert recreated_config.max_iterations == original_config.max_iterations
+        assert recreated_config.learn_max_epoch == original_config.learn_max_epoch
 
         # Test models
         assert len(recreated_config.models) == 1

@@ -190,6 +190,7 @@ class EnvironmentFactory:
             msg = f"Failed to create environment '{env_name}' (exists in registry but creation failed): {e}"
             raise ValueError(msg) from e
 
+
     def get_or_create_environment(self, env_name: str, **kwargs) -> gym.Env:
         """
         Get cached environment or create new one.

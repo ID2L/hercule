@@ -13,6 +13,7 @@ from hercule.run import (
     generate_filename_suffix,
     save_evaluation_results,
 )
+from hercule.supervisor import Supervisor
 
 
 @click.command()
@@ -73,20 +74,8 @@ def cli(config_file: Path, output_dir: Path, verbose: int) -> None:
             f.write(str(config))
         click.echo(f"📄 Configuration summary saved to: {config_summary_file}")
 
-        # # Store configuration info for summary
-        # config_info = {"config_file": str(config_file), "config": config, "output_dir": config.output_dir}
-
-        # # Run training for this configuration
-        # config_results = run_training_for_config(config, config.output_dir)
-
-        # # Save results if we have any
-        # if config_results:
-        #     save_combined_results(config_results, [config_info], output_dir)
-        #     successful_runs = sum(1 for r in config_results if r.success)
-        #     total_runs = len(config_results)
-        #     click.echo(f"\n✅ Hercule execution completed: {successful_runs}/{total_runs} runs successful")
-        # else:
-        #     click.echo("\n⚠️ No results generated")
+        supervisor = Supervisor(config)
+        supervisor.execute_learn_phase()
 
     except Exception as e:
         logger.error(f"Failed to process {config_file}: {e}")
@@ -96,7 +85,7 @@ def cli(config_file: Path, output_dir: Path, verbose: int) -> None:
     logger.info("Hercule execution completed")
 
 
-def run_training_for_config(config, output_dir: Path | None = None):
+def run_training_for_config(config):
     """Run training and evaluation for all model-environment combinations in a configuration."""
     logger = logging.getLogger(__name__)
     training_results = []

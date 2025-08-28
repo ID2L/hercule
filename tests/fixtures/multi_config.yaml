@@ -28,7 +28,7 @@ models:
         value: ["relu", "relu"]
       - key: use_layer_norm
         value: [true, true]
-max_iterations: 1000
+learn_max_epoch: 1000
 output_dir: multi_outputs
 evaluation:
   num_episodes: 50

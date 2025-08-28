@@ -19,7 +19,7 @@ models:
         value: ["relu", "tanh"]
       - key: use_layer_norm
         value: [true, false]
-max_iterations: 500
+learn_max_epoch: 500
 output_dir: complex_outputs
 evaluation:
   num_episodes: 25

@@ -32,7 +32,7 @@ class RLModel(ABC):
         self.env: gym.Env | None = None
 
     @abstractmethod
-    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
+    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> bool:
         """
         Configure the model for a specific environment.
 
@@ -40,7 +40,7 @@ class RLModel(ABC):
             env: Gymnasium environment
             hyperparameters: Model hyperparameters
         """
-        self.env = env
+        return False
 
     @abstractmethod
     def act(self, observation: np.ndarray | int, training: bool = False) -> int | float | np.ndarray:
@@ -136,7 +136,7 @@ class RLModel(ABC):
 
     def __str__(self) -> str:
         """String representation of the model."""
-        return f"{self.__class__.__name__}(name='{self.model_name}', trained={self.is_trained})"
+        return f"{self.__class__.__name__}(name='{self.model_name}')"
 
     def __repr__(self) -> str:
         """Detailed string representation of the model."""
