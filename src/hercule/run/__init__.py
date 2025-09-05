@@ -91,7 +91,6 @@ class Runner(BaseModel):
 
         # Préparer les données à sauvegarder
         run_data = {
-            "directory_path": str(self.directory_path),
             "_ongoing_epoch": self.ongoing_epoch,
             "learning_metrics": [metric.model_dump() for metric in self.learning_metrics],
         }
@@ -110,7 +109,7 @@ class Runner(BaseModel):
         if self.model is None or self.environment is None:
             raise ValueError("Model and environment must be configured before learning")
 
-        for episode in range(self.ongoing_epoch, max_epoch):
+        for _ in range(self.ongoing_epoch, max_epoch):
             epoch_result = self.model.run_epoch(train_mode=True)
             self.learning_metrics.append(epoch_result)
             self.ongoing_epoch += 1

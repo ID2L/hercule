@@ -50,8 +50,6 @@ class BaseConfig(BaseModel):
             # Split parameter name on non-alphanumeric characters
             words = re.split(r"[^a-zA-Z0-9]", hp.key)
             # Filter out empty strings and get first 3 letters of each word
-            parts = [word[:3] for word in words if word]
-            print(parts)
             param_prefix = ("_").join([word[:3] for word in words if word])
 
             # Convert value to string and add to signature
