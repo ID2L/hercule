@@ -56,7 +56,7 @@ class Runner(BaseModel):
         run_info_file = directory_path / "run_info.json"
 
         if not run_info_file.exists():
-            return Runner(ongoing_epoch=0)
+            return Runner(ongoing_epoch=0, directory_path=directory_path)
 
         try:
             with open(run_info_file, encoding="utf-8") as f:

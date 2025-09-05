@@ -69,7 +69,7 @@ def cli(config_file: Path, output_dir: Path, verbose: int) -> None:
         click.echo(f"📁 Output directory: {config.output_dir}")
 
         # Save configuration summary at the root of the project directory
-        config_summary_file = config.output_dir / "config_summary.txt"
+        config_summary_file = config.output_dir / "config_summary.yaml"
         with open(config_summary_file, "w", encoding="utf-8") as f:
             f.write(str(config))
         click.echo(f"📄 Configuration summary saved to: {config_summary_file}")

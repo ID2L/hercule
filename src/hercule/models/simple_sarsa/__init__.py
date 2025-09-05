@@ -1,7 +1,7 @@
 """Simple SARSA implementation with Q-table for discrete environments."""
 
+import json
 import logging
-import pickle
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -62,6 +62,8 @@ class SimpleSarsaModel(RLModel):
         # Validate environment has discrete spaces
         if not check_space_is_discrete(env.action_space) or not check_space_is_discrete(env.observation_space):
             return False
+
+        super().configure(env, hyperparameters)
         # Store environment spaces
         self._action_space = cast("Discrete", env.action_space)
         self._observation_space = cast("Discrete", env.observation_space)
@@ -219,17 +221,17 @@ class SimpleSarsaModel(RLModel):
         """
         if not training or self.seed.random() > self._epsilon:
             # Exploit: choose best action
-            if self._num_actions is None:
+            if self._action_space.n is None:
                 raise ValueError("Number of actions not set")
-            q_values = [self._get_q_value(state, a) for a in range(self._num_actions - 1)]
+            q_values = [self._get_q_value(state, a) for a in range(self._action_space.n - 1)]
             max_q = max(q_values)
             best_actions = [a for a, q in enumerate(q_values) if q == max_q]
             return self.seed.choice(best_actions)
         else:
             # Explore: choose random action
-            if self._num_actions is None:
+            if self._action_space.n is None:
                 raise ValueError("Number of actions not set")
-            return int(self.seed.integers(0, self._num_actions))
+            return int(self.seed.integers(0, self._action_space.n))
 
     def act(self, observation: int, training: bool = False) -> int:
         """
@@ -275,17 +277,14 @@ class SimpleSarsaModel(RLModel):
 
         # Prepare model data for JSON serialization
         model_data = {
-            "training_metrics": self._training_metrics,
             "q_table": json_q_table,
         }
 
         # Save as JSON
         model_file = path / "sarsa_model.json"
         with open(model_file, "w", encoding="utf-8") as f:
-            import json
-
             json.dump(model_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"SARSA model saved to {path} (JSON: {model_file}, Legacy: {legacy_file})")
+        logger.info(f"SARSA model saved to {path} (JSON: {model_file})")
 
     def load(self, path: Path) -> None:
         """
@@ -301,16 +300,11 @@ class SimpleSarsaModel(RLModel):
 
         # Try to load JSON format first, fall back to pickle
         if json_file.exists():
-            import json
-
             with open(json_file, encoding="utf-8") as f:
                 model_data = json.load(f)
 
             # Convert Q-table back from JSON format
             self._q_table = np.array(model_data["q_table"])
-
-            # Restore model state from JSON structure
-            self._training_metrics = model_data.get("training_metrics", {})
 
             logger.info(f"Loaded SARSA model from JSON: {json_file}")
 

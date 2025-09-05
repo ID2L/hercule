@@ -40,7 +40,8 @@ class RLModel(ABC):
             env: Gymnasium environment
             hyperparameters: Model hyperparameters
         """
-        return False
+        self.env = env
+        return True
 
     @abstractmethod
     def act(self, observation: np.ndarray | int, training: bool = False) -> int | float | np.ndarray:
@@ -59,7 +60,7 @@ class RLModel(ABC):
     @final
     def check_environment_or_raise(self) -> gym.Env:
         if self.env is None:
-            raise ValueError("Environment not configured for {model_name}. Call configure() first.")
+            raise ValueError(f"Environment not configured for {self.model_name}. Call configure() first.")
         return cast("gym.Env", self.env)
 
     @abstractmethod
