@@ -64,7 +64,7 @@ models:
       - key: "seed"
         value: 123
 # Nombre maximum d'itérations d'entraînement
-learn_max_epoch: 200
+learn_max_epoch: 200qzqz
 
 # Répertoire de sortie
 output_dir: "outputs"
