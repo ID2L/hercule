@@ -37,6 +37,17 @@ models:
         value: 0.1
       - key: "seed"
         value: 42
+
+  - name: "simple_sarsa"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.85
+      - key: "discount_factor"
+        value: 0.82
+      - key: "epsilon"
+        value: 0.77
+      - key: "seed"
+        value: 42
   
   - name: "simple_sarsa"
     hyperparameters:
@@ -53,7 +64,7 @@ models:
       - key: "seed"
         value: 123
 # Nombre maximum d'itérations d'entraînement
-max_iterations: 200
+learn_max_epoch: 200
 
 # Répertoire de sortie
 output_dir: "outputs"

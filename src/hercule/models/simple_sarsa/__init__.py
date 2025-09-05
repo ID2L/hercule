@@ -11,7 +11,6 @@ from gymnasium.spaces import Discrete
 
 from hercule.config import ParameterValue
 from hercule.environnements.spaces_checker import check_space_is_discrete
-from hercule.environnements.validate_discrete_environment import validate_discrete_environment
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
 

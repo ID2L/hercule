@@ -1,15 +1,11 @@
 """Main CLI entry point for Hercule RL framework."""
 
-import json
 import logging
 from pathlib import Path
 
 import click
 
 from hercule.config import load_config_from_yaml
-from hercule.run import (
-    generate_filename_suffix,
-)
 from hercule.supervisor import Supervisor
 
 
@@ -80,42 +76,6 @@ def cli(config_file: Path, output_dir: Path, verbose: int) -> None:
         return
 
     logger.info("Hercule execution completed")
-
-
-def save_combined_results(results, config_info_list, output_dir: Path):
-    """Save combined results from all configurations."""
-    logger = logging.getLogger(__name__)
-
-    # Save individual results in their respective configuration directories
-    for result in results:
-        # Find the corresponding config info for this result
-        config_info = None
-        for info in config_info_list:
-            config = info["config"]
-            # Check if this result belongs to this configuration based on environments
-            if result.environment_name in config.get_environment_names():
-                config_info = info
-                break
-
-        if config_info:
-            config_output_dir = config_info["output_dir"]
-
-            # Generate descriptive filename with hyperparameters
-            param_suffix = generate_filename_suffix(result.hyperparameters, result.environment_hyperparameters)
-            filename = f"{result.environment_name}_{result.model_name}{param_suffix}.json"
-
-            # Save training results directly in training subdirectory
-            training_results_dir = config_output_dir / "training"
-            training_results_dir.mkdir(parents=True, exist_ok=True)
-            result_file = training_results_dir / filename
-
-            with open(result_file, "w", encoding="utf-8") as f:
-                json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
-
-            logger.debug(f"Saved training result: {result_file}")
-
-    logger.info("All training results saved successfully")
-    click.echo("📊 Training results saved")
 
 
 if __name__ == "__main__":
