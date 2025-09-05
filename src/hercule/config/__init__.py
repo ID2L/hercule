@@ -1,6 +1,7 @@
 """Configuration module for Hercule reinforcement learning framework."""
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -29,6 +30,34 @@ class BaseConfig(BaseModel):
     def get_hyperparameters_dict(self) -> dict[str, ParameterValue]:
         """Get hyperparameters as a dictionary."""
         return {hp.key: hp.value for hp in self.hyperparameters}
+
+    def get_hyperparameters_signature(self) -> str:
+        """
+        Generate a short signature from hyperparameters.
+
+        Returns a string composed of the first three letters of each word in the hyperparameter name
+        (split on non-alphanumeric characters) followed by its value, sorted alphabetically by
+        parameter name, separated by "_".
+        """
+        if not self.hyperparameters:
+            return "default"
+
+        # Sort hyperparameters alphabetically by key
+        sorted_params = sorted(self.hyperparameters, key=lambda hp: hp.key)
+
+        signature_parts = []
+        for hp in sorted_params:
+            # Split parameter name on non-alphanumeric characters
+            words = re.split(r"[^a-zA-Z0-9]", hp.key)
+            # Filter out empty strings and get first 3 letters of each word
+            parts = [word[:3] for word in words if word]
+            print(parts)
+            param_prefix = ("_").join([word[:3] for word in words if word])
+
+            # Convert value to string and add to signature
+            signature_parts.append(f"{param_prefix}_{hp.value}")
+
+        return "__".join(signature_parts)
 
 
 class ModelConfig(BaseConfig):
@@ -173,8 +202,17 @@ class HerculeConfig(BaseModel):
         return f"HerculeConfig(**{config_str})"
 
     def get_directory_for(self, model: ModelConfig, environment: EnvironmentConfig) -> Path:
-        """Get the directory for a specific model and environment."""
-        return self.output_dir / self.name / environment.name / model.name
+        """
+        Get the directory for a specific model and environment.
+
+        The directory path includes signatures of hyperparameters to ensure uniqueness:
+        output_dir/name/environment_name[env_signature]/model_name[model_signature]
+        """
+        # Get hyperparameter signatures
+        env_signature = environment.get_hyperparameters_signature()
+        model_signature = model.get_hyperparameters_signature()
+
+        return self.output_dir / self.name / environment.name / env_signature / model.name / model_signature
 
 
 def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:
