@@ -9,7 +9,12 @@
       "type": "debugpy",
       "request": "launch",
       "module": "hercule.cli.main",
-      "args": ["sarsa_test_config.yaml"]
+      "args": ["sarsa_test_config.yaml"],
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
     }
   ]
 }
