@@ -103,14 +103,6 @@ def learn(ctx, config_file: Path, output_dir: Path) -> None:
 @click.argument("model_file", type=click.Path(exists=True, path_type=Path), metavar="MODEL_FILE")
 @click.argument("environment_file", type=click.Path(exists=True, path_type=Path), metavar="ENVIRONMENT_FILE")
 @click.option(
-    "--episodes",
-    "-e",
-    type=int,
-    default=10,
-    help="Number of episodes to play (default: 10)",
-    show_default=True,
-)
-@click.option(
     "--render-mode",
     "-r",
     type=click.Choice(["human", "rgb_array", "ansi"]),
@@ -119,24 +111,26 @@ def learn(ctx, config_file: Path, output_dir: Path) -> None:
     show_default=True,
 )
 @click.pass_context
-def play(ctx, model_file: Path, environment_file: Path, episodes: int, render_mode: str) -> None:
+def play(ctx, model_file: Path, environment_file: Path, render_mode: str) -> None:
     """Play with a trained RL model in visual mode.
 
     This command loads a trained model and environment configuration to play episodes
-    with visual rendering.
+    with visual rendering. Press Ctrl+C to stop the simulation.
 
     MODEL_FILE: JSON file containing the trained model data.
+
     ENVIRONMENT_FILE: JSON file containing the environment configuration.
     """
     logger = configure_logging(ctx.obj["verbose"])
 
     logger.info(f"Starting Hercule play with model: {model_file}")
     logger.info(f"Environment file: {environment_file}")
-    logger.info(f"Episodes: {episodes}, Render mode: {render_mode}")
+    logger.info(f"Render mode: {render_mode}")
 
     click.echo(f"\n🎮 Playing with model: {model_file}")
     click.echo(f"🌍 Environment: {environment_file}")
-    click.echo(f"📊 Episodes: {episodes}, Render: {render_mode}")
+    click.echo(f"🎨 Render mode: {render_mode}")
+    click.echo("💡 Press Ctrl+C to stop the simulation")
 
     try:
         # Load environment from saved configuration
@@ -163,31 +157,41 @@ def play(ctx, model_file: Path, environment_file: Path, episodes: int, render_mo
         # Load model weights
         model.load_from_dict(model_data)
 
-        # Play episodes
+        # Play episodes until interrupted
         total_reward = 0
-        for episode in range(episodes):
-            obs, _ = env_with_render.reset()
-            episode_reward = 0
-            done = False
+        episode_count = 0
 
-            click.echo(f"\n🎯 Episode {episode + 1}/{episodes}")
+        try:
+            while True:
+                obs, _ = env_with_render.reset()
+                episode_reward = 0
+                done = False
+                episode_count += 1
 
-            while not done:
-                action = model.predict(obs)
-                obs, reward, terminated, truncated, _ = env_with_render.step(action)
-                episode_reward += reward
-                done = terminated or truncated
+                click.echo(f"\n🎯 Episode {episode_count}")
 
-                if render_mode == "human":
-                    env_with_render.render()
+                while not done:
+                    action = model.predict(obs)
+                    obs, reward, terminated, truncated, _ = env_with_render.step(action)
+                    episode_reward += reward
+                    done = terminated or truncated
 
-            total_reward += episode_reward
-            click.echo(f"Episode {episode + 1} reward: {episode_reward:.2f}")
+                    if render_mode == "human":
+                        env_with_render.render()
 
-        avg_reward = total_reward / episodes
-        click.echo(f"\n📈 Average reward over {episodes} episodes: {avg_reward:.2f}")
+                total_reward += episode_reward
+                click.echo(f"Episode {episode_count} reward: {episode_reward:.2f}")
 
-        env_with_render.close()
+        except KeyboardInterrupt:
+            click.echo("\n\n⏹️  Simulation stopped by user")
+            if episode_count > 0:
+                avg_reward = total_reward / episode_count
+                click.echo(f"📈 Average reward over {episode_count} episodes: {avg_reward:.2f}")
+            else:
+                click.echo("📊 No episodes completed")
+
+        finally:
+            env_with_render.close()
 
     except Exception as e:
         logger.error(f"Failed to play with model {model_file}: {e}")

@@ -4,17 +4,23 @@
 name: "simple_games"
 
 environments:
-  - "Taxi-v3"
+  # - "Taxi-v3"
   - name: "FrozenLake-v1"
     hyperparameters:
       - key: "map_name"
         value: "4x4"
       - key: "is_slippery"
         value: false
-      - key: "render_mode"
-        value: "rgb_array"
       - key: "max_episode_steps"
-        value: 100
+        value: 200
+  - name: "FrozenLake-v1"
+    hyperparameters:
+      - key: "map_name"
+        value: "4x4"
+      - key: "is_slippery"
+        value: true
+      - key: "max_episode_steps"
+        value: 200
 
 models:
   # - name: "dummy"
@@ -25,16 +31,16 @@ models:
   - name: "simple_sarsa"
     hyperparameters:
       - key: "learning_rate"
-        value: 0.1
-      - key: "discount_factor"
-        value: 0.95
-      - key: "epsilon"
         value: 0.2
+      - key: "discount_factor"
+        value: 0.98
+      - key: "epsilon"
+        value: 0.77
       - key: "seed"
         value: 42
 
 # Nombre maximum d'itérations d'entraînement
-max_iterations: 1000
-
+max_iterations: 5000
+save_every_n_epoch: 10
 # Répertoire de sortie
 output_dir: "outputs/simple_games"

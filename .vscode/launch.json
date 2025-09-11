@@ -9,7 +9,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "hercule.cli.main",
-      "args": ["sarsa_test_config.yaml"],
+      "args": ["learn", "simple_games.yaml"],
       "python": "${workspaceFolder}/.venv/Scripts/python.exe",
       "cwd": "${workspaceFolder}",
       "env": {

@@ -42,7 +42,9 @@ class Supervisor(BaseModel):
                 # Create directory if it doesn't exist
                 directory.mkdir(parents=True, exist_ok=True)
 
-                environment = environment_factory.get_or_create_environment(environment_config.name)
+                environment = environment_factory.get_or_create_environment(
+                    environment_config.name, **environment_config.get_hyperparameters_dict()
+                )
 
                 # Save environment configuration for later use
                 env_save_path = directory / "environment.json"
@@ -65,7 +67,9 @@ class Supervisor(BaseModel):
                 directory = self.config.get_directory_for(model_config, environment_config)
                 logger.info(f"Running test phase for {model_config.name} on {environment_config.name} in {directory}")
 
-                environment = environment_factory.get_or_create_environment(environment_config.name)
+                environment = environment_factory.get_or_create_environment(
+                    environment_config.name, **environment_config.get_hyperparameters_dict()
+                )
                 model = create_model(model_config.name)
                 model.configure(environment, model_config.get_hyperparameters_dict())
                 model.load(directory)

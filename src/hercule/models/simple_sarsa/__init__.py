@@ -2,6 +2,7 @@
 
 import json
 import logging
+import random
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -120,8 +121,8 @@ class SimpleSarsaModel(RLModel):
 
         action = self.act(observation, training=train_mode)
         while not done:
-            next_action = self.act(observation, training=train_mode)
             next_observation, reward, terminated, truncated, _ = env.step(action)
+            next_action = self.act(next_observation, training=train_mode)
             done = terminated or truncated
             episode_reward += float(reward)
             episode_length += 1
@@ -129,8 +130,7 @@ class SimpleSarsaModel(RLModel):
             if train_mode:
                 self._q_table[observation][action] += self._learning_rate * (
                     float(reward)
-                    + self._discount_factor
-                    + self._q_table[next_observation, next_action]
+                    + self._discount_factor * self._q_table[next_observation, next_action]
                     - self._q_table[observation, action]
                 )
 
@@ -221,19 +221,34 @@ class SimpleSarsaModel(RLModel):
         Returns:
             Selected action index
         """
-        if not training or self.seed.random() > self._epsilon:
-            # Exploit: choose best action
-            if self._action_space.n is None:
-                raise ValueError("Number of actions not set")
-            q_values = [self._get_q_value(state, a) for a in range(self._action_space.n - 1)]
-            max_q = max(q_values)
-            best_actions = [a for a, q in enumerate(q_values) if q == max_q]
-            return self.seed.choice(best_actions)
-        else:
+        choice: int = 0
+        rand = random.random()
+        if training and rand < self._epsilon:
             # Explore: choose random action
             if self._action_space.n is None:
                 raise ValueError("Number of actions not set")
-            return int(self.seed.integers(0, self._action_space.n))
+            choice = random.randint(0, self._action_space.n - 1)
+            print("choose randomly")
+        else:
+            # Exploit: choose best action
+            if self._action_space.n is None:
+                raise ValueError("Number of actions not set")
+            action_state_value = self._q_table[state]
+            print("action_state_value", action_state_value)
+            maximum_value = max(action_state_value)
+            print("maximum_value", maximum_value)
+            possible_action_index = [i for i, j in enumerate(action_state_value) if j == maximum_value]
+            print("possible_action_index", possible_action_index)
+            random_between_maximum_value = random.randint(0, len(possible_action_index) - 1)
+            choice = possible_action_index[random_between_maximum_value]
+            print("action", choice)
+            # q_values = [self._get_q_value(state, a) for a in range(self._action_space.n)]
+            # max_q = max(q_values)
+            # best_actions = [a for a, q in enumerate(q_values) if q == max_q]
+            # print("best actions", best_actions)
+            # choice = self.seed.choice(best_actions)
+        print(choice)
+        return choice
 
     def act(self, observation: int, training: bool = False) -> int:
         """
@@ -298,7 +313,7 @@ class SimpleSarsaModel(RLModel):
         Raises:
             FileNotFoundError: If model file is not found
         """
-        json_file = path / "sarsa_model.json"
+        json_file = path / "model.json"
 
         # Try to load JSON format first, fall back to pickle
         if json_file.exists():
