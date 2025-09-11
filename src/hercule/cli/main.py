@@ -2,6 +2,7 @@
 
 import json
 import logging
+from functools import wraps
 from pathlib import Path
 
 import click
@@ -27,18 +28,26 @@ def configure_logging(verbose: int) -> logging.Logger:
     return logging.getLogger(__name__)
 
 
+def verbose_option(func):
+    """Decorator to add --verbose/-v option to CLI commands."""
+
+    @click.option("--verbose", "-v", count=True, help="Increase verbosity (use -v, -vv, or -vvv for different levels)")
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 @click.group()
-@click.option("--verbose", "-v", count=True, help="Increase verbosity (use -v, -vv, or -vvv for different levels)")
 @click.version_option()
 @click.pass_context
-def cli(ctx, verbose: int) -> None:
+def cli(ctx) -> None:
     """Hercule RL framework CLI.
 
     A reinforcement learning framework for training and playing with RL agents.
     """
     ctx.ensure_object(dict)
-    ctx.obj["verbose"] = verbose
-    configure_logging(verbose)
 
 
 @cli.command()
@@ -51,15 +60,16 @@ def cli(ctx, verbose: int) -> None:
     help="Output directory for results and models (default: outputs)",
     show_default=True,
 )
+@verbose_option
 @click.pass_context
-def learn(ctx, config_file: Path, output_dir: Path) -> None:
+def learn(ctx, config_file: Path, output_dir: Path, verbose: int) -> None:
     """Learn and evaluate RL algorithms using a configuration file.
 
     This command trains RL models on specified environments and saves metrics and model data.
 
     CONFIG_FILE: YAML configuration file to process.
     """
-    logger = configure_logging(ctx.obj["verbose"])
+    logger = configure_logging(verbose)
 
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -110,8 +120,9 @@ def learn(ctx, config_file: Path, output_dir: Path) -> None:
     help="Render mode for visualization (default: human)",
     show_default=True,
 )
+@verbose_option
 @click.pass_context
-def play(ctx, model_file: Path, environment_file: Path, render_mode: str) -> None:
+def play(ctx, model_file: Path, environment_file: Path, render_mode: str, verbose: int) -> None:
     """Play with a trained RL model in visual mode.
 
     This command loads a trained model and environment configuration to play episodes
@@ -121,7 +132,7 @@ def play(ctx, model_file: Path, environment_file: Path, render_mode: str) -> Non
 
     ENVIRONMENT_FILE: JSON file containing the environment configuration.
     """
-    logger = configure_logging(ctx.obj["verbose"])
+    logger = configure_logging(verbose)
 
     logger.info(f"Starting Hercule play with model: {model_file}")
     logger.info(f"Environment file: {environment_file}")

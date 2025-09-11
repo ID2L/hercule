@@ -210,6 +210,15 @@ class SimpleSarsaModel(RLModel):
         """
         self._q_table[state][action] = value
 
+    def exploit(self, state: int) -> int:
+        if self._action_space.n is None:
+            raise ValueError("Number of actions not set")
+        action_state_value = self._q_table[state]
+        maximum_value = max(action_state_value)
+        possible_action_index = [i for i, j in enumerate(action_state_value) if j == maximum_value]
+        random_between_maximum_value = random.randint(0, len(possible_action_index) - 1)
+        return possible_action_index[random_between_maximum_value]
+
     def _epsilon_greedy_action(self, state: int, training: bool = False) -> int:
         """
         Select action using epsilon-greedy policy.
@@ -221,34 +230,14 @@ class SimpleSarsaModel(RLModel):
         Returns:
             Selected action index
         """
-        choice: int = 0
         rand = random.random()
-        if training and rand < self._epsilon:
+        if rand < self._epsilon:
             # Explore: choose random action
             if self._action_space.n is None:
                 raise ValueError("Number of actions not set")
-            choice = random.randint(0, self._action_space.n - 1)
-            print("choose randomly")
+            return random.randint(0, self._action_space.n - 1)
         else:
-            # Exploit: choose best action
-            if self._action_space.n is None:
-                raise ValueError("Number of actions not set")
-            action_state_value = self._q_table[state]
-            print("action_state_value", action_state_value)
-            maximum_value = max(action_state_value)
-            print("maximum_value", maximum_value)
-            possible_action_index = [i for i, j in enumerate(action_state_value) if j == maximum_value]
-            print("possible_action_index", possible_action_index)
-            random_between_maximum_value = random.randint(0, len(possible_action_index) - 1)
-            choice = possible_action_index[random_between_maximum_value]
-            print("action", choice)
-            # q_values = [self._get_q_value(state, a) for a in range(self._action_space.n)]
-            # max_q = max(q_values)
-            # best_actions = [a for a, q in enumerate(q_values) if q == max_q]
-            # print("best actions", best_actions)
-            # choice = self.seed.choice(best_actions)
-        print(choice)
-        return choice
+            return self.exploit(state)
 
     def act(self, observation: int, training: bool = False) -> int:
         """
@@ -269,7 +258,10 @@ class SimpleSarsaModel(RLModel):
             raise ValueError(msg)
 
         state = observation
-        return self._epsilon_greedy_action(state, training)
+        if training:
+            return self._epsilon_greedy_action(state, training)
+        else:
+            return self.exploit(state)
 
     def save(
         self,

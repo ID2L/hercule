@@ -30,7 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 class Runner(BaseModel):
-    ongoing_epoch: int = Field(default=0, description="")
+    """
+    Runner class for training execution and result management.
+    """
+
+    learning_ongoing_epoch: int = Field(default=0, description="")
+    testing_ongoing_epoch: int = Field(default=0, description="")
     learning_metrics: list[EpochResult] = Field(default=[], description="")
     testing_metrics: list[EpochResult] = Field(default=[], description="")
     directory_path: Path = Field(default=Path("."), description="")
@@ -49,7 +54,7 @@ class Runner(BaseModel):
         run_info_file = directory_path / "run_info.json"
 
         if not run_info_file.exists():
-            return Runner(ongoing_epoch=0, directory_path=directory_path)
+            return Runner(learning_ongoing_epoch=0, testing_ongoing_epoch=0, directory_path=directory_path)
 
         try:
             with open(run_info_file, encoding="utf-8") as f:
@@ -72,7 +77,8 @@ class Runner(BaseModel):
             env_id = self.environment.spec.id
 
         representation = {
-            "_ongoing_epoch": self.ongoing_epoch,
+            "learning_ongoing_epoch": self.learning_ongoing_epoch,
+            "testing_ongoing_epoch": self.testing_ongoing_epoch,
             "model": str(self.model) if self.model else None,
             "environment": f"gym.Env({env_id})" if self.environment else None,
         }
@@ -87,7 +93,8 @@ class Runner(BaseModel):
 
         # Préparer les données à sauvegarder
         run_data = {
-            "_ongoing_epoch": self.ongoing_epoch,
+            "learning_ongoing_epoch": self.learning_ongoing_epoch,
+            "testing_ongoing_epoch": self.testing_ongoing_epoch,
             "learning_metrics": [metric.model_dump() for metric in self.learning_metrics],
             "testing_metrics": [metric.model_dump() for metric in self.testing_metrics],
         }
@@ -106,11 +113,14 @@ class Runner(BaseModel):
         if self.model is None or self.environment is None:
             raise ValueError("Model and environment must be configured before learning")
 
-        for _ in range(self.ongoing_epoch, max_epoch):
+        if self.learning_ongoing_epoch == max_epoch:
+            logger.info("Max learning epoch already reached")
+            return
+        for _ in range(self.learning_ongoing_epoch, max_epoch):
             epoch_result = self.model.run_epoch(train_mode=True)
             self.learning_metrics.append(epoch_result)
-            self.ongoing_epoch += 1
-            if save_every_n_epoch is not None and self.ongoing_epoch % save_every_n_epoch == 0:
+            self.learning_ongoing_epoch += 1
+            if save_every_n_epoch is not None and self.learning_ongoing_epoch % save_every_n_epoch == 0:
                 self.save(self.directory_path)
                 self.model.save(self.directory_path)
 
@@ -121,10 +131,10 @@ class Runner(BaseModel):
         if self.model is None or self.environment is None:
             raise ValueError("Model and environment must be configured before testing")
 
-        for _ in range(self.ongoing_epoch, max_epoch):
+        for _ in range(self.testing_ongoing_epoch, max_epoch):
             epoch_result = self.model.run_epoch(train_mode=False)
             self.testing_metrics.append(epoch_result)
-            self.ongoing_epoch += 1
+            self.testing_ongoing_epoch += 1
 
         self.save(self.directory_path)
 
