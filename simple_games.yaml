@@ -13,6 +13,8 @@ environments:
         value: false
       - key: "render_mode"
         value: "rgb_array"
+      - key: "max_episode_steps"
+        value: 100
 
 models:
   # - name: "dummy"

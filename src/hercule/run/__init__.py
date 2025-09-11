@@ -73,12 +73,15 @@ class Runner(BaseModel):
         # pour le directory_path, c'est la représentation sous forme de string du chemin
         # pour le model, il faut utliser la méthode load() de RLmodel
         # pour l'environnemnt, demande moi dans le prompt
+        # Extract environment representation logic
+        env_id = "Unknown"
+        if self.environment and hasattr(self.environment, "spec") and self.environment.spec:
+            env_id = self.environment.spec.id
+
         representation = {
             "_ongoing_epoch": self.ongoing_epoch,
             "model": str(self.model) if self.model else None,
-            "environment": f"gym.Env({self.model.environment.spec.id if self.model.environment and self.model.environment.spec else 'Unknown'})"
-            if self.environment
-            else None,
+            "environment": f"gym.Env({env_id})" if self.environment else None,
         }
         return json.dumps(representation, indent=2, ensure_ascii=False)
 
@@ -105,7 +108,7 @@ class Runner(BaseModel):
         self.model = model
         self.environment = environment
 
-    def learn(self, max_epoch: int = 1000, save_every_n_epoch: int = 10):
+    def learn(self, max_epoch: int = 1000, save_every_n_epoch: int = None):
         if self.model is None or self.environment is None:
             raise ValueError("Model and environment must be configured before learning")
 
@@ -113,9 +116,18 @@ class Runner(BaseModel):
             epoch_result = self.model.run_epoch(train_mode=True)
             self.learning_metrics.append(epoch_result)
             self.ongoing_epoch += 1
-            if self.ongoing_epoch % save_every_n_epoch == 0:
+            if save_every_n_epoch is not None and self.ongoing_epoch % save_every_n_epoch == 0:
                 self.save(self.directory_path)
                 self.model.save(self.directory_path)
+
+    def test(self, max_epoch: int = 1000):
+        if self.model is None or self.environment is None:
+            raise ValueError("Model and environment must be configured before testing")
+
+        for _ in range(self.ongoing_epoch, max_epoch):
+            epoch_result = self.model.run_epoch(train_mode=False)
+            self.learning_metrics.append(epoch_result)
+            self.ongoing_epoch += 1
 
 
 def save_config_summary(config: HerculeConfig, output_dir: Path) -> None:

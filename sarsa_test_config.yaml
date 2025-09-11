@@ -12,6 +12,8 @@ environments:
         value: "4x4"
       - key: "is_slippery"
         value: false
+      - key: "max_episode_steps"
+        value: 100
   - name: "FrozenLake-v1"
     hyperparameters:
       - key: "map_name"
@@ -64,7 +66,7 @@ models:
       - key: "seed"
         value: 123
 # Nombre maximum d'itérations d'entraînement
-learn_max_epoch: 200qzqz
-
+learn_max_epoch: 200
+save_every_n_epoch: 20
 # Répertoire de sortie
 output_dir: "outputs"

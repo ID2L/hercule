@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from hercule.config import HerculeConfig, load_config_from_yaml
 from hercule.environnements import EnvironmentFactory
@@ -51,4 +51,21 @@ class Supervisor(BaseModel):
                 runner = Runner.load(directory)
                 runner.configure(model, environment)
 
-                runner.learn(self.config.learn_max_epoch)
+                runner.learn(self.config.learn_max_epoch, self.config.save_every_n_epoch)
+
+    def execute_test_phase(self):
+        environment_factory = EnvironmentFactory()
+        for environment_config in self.config.get_environment_configs():
+            for model_config in self.config.models:
+                directory = self.config.get_directory_for(model_config, environment_config)
+                logger.info(f"Running test phase for {model_config.name} on {environment_config.name} in {directory}")
+
+                environment = environment_factory.get_or_create_environment(environment_config.name)
+                model = create_model(model_config.name)
+                model.configure(environment, model_config.get_hyperparameters_dict())
+                model.load(directory)
+
+                runner = Runner.load(directory)
+                runner.configure(model, environment)
+
+                runner.test(self.config.test_epoch)
