@@ -7,12 +7,15 @@ from typing import TYPE_CHECKING, cast
 
 import gymnasium as gym
 import numpy as np
-from gymnasium.spaces import Discrete
 
 from hercule.config import ParameterValue
 from hercule.environnements.spaces_checker import check_space_is_discrete
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
+
+
+if TYPE_CHECKING:
+    from gymnasium.spaces import Discrete
 
 
 logger = logging.getLogger(__name__)
@@ -38,7 +41,7 @@ class SimpleSarsaModel(RLModel):
         self._q_table: np.ndarray = np.zeros((0, 0), dtype=np.float64)
         self._action_space: Discrete
         self._observation_space: Discrete
-        self._seed = np.random.default_rng(42)
+        self.seed = np.random.default_rng(42)
 
         # Hyperparameters
         self._learning_rate: float = 0.1
@@ -280,7 +283,7 @@ class SimpleSarsaModel(RLModel):
         }
 
         # Save as JSON
-        model_file = path / "sarsa_model.json"
+        model_file = path / "model.json"
         with open(model_file, "w", encoding="utf-8") as f:
             json.dump(model_data, f, indent=2, ensure_ascii=False)
         logger.info(f"SARSA model saved to {path} (JSON: {model_file})")
@@ -314,6 +317,37 @@ class SimpleSarsaModel(RLModel):
         # Note: Environment needs to be configured separately after loading
         # as it cannot be serialized
         logger.info("Note: Call configure() with environment before using loaded model")
+
+    def load_from_dict(self, model_data: dict) -> None:
+        """
+        Load a trained SARSA model from a dictionary.
+
+        Args:
+            model_data: Dictionary containing model data
+
+        Raises:
+            KeyError: If required keys are missing from model_data
+        """
+        # Convert Q-table back from JSON format
+        self._q_table = np.array(model_data["q_table"])
+
+        logger.info("Loaded SARSA model from dictionary")
+
+        # Note: Environment needs to be configured separately after loading
+        # as it cannot be serialized
+        logger.info("Note: Call configure() with environment before using loaded model")
+
+    def predict(self, observation: np.ndarray | int) -> int:
+        """
+        Predict the best action for a given observation (inference mode).
+
+        Args:
+            observation: Current observation from the environment
+
+        Returns:
+            Selected action index
+        """
+        return self.act(observation, training=False)
 
 
 __all__ = ["SimpleSarsaModel"]

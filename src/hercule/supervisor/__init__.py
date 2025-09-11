@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from hercule.config import HerculeConfig, load_config_from_yaml
-from hercule.environnements import EnvironmentFactory
+from hercule.environnements import EnvironmentFactory, save_environment
 from hercule.models import create_model
 from hercule.run import Runner
 
@@ -43,6 +43,11 @@ class Supervisor(BaseModel):
                 directory.mkdir(parents=True, exist_ok=True)
 
                 environment = environment_factory.get_or_create_environment(environment_config.name)
+
+                # Save environment configuration for later use
+                env_save_path = directory / "environment.json"
+                save_environment(environment, env_save_path)
+
                 model = create_model(model_config.name)
                 model.configure(environment, model_config.get_hyperparameters_dict())
                 model.load(directory)

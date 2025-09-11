@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 
+import click.testing
 import pytest
 
 
@@ -55,3 +56,17 @@ def change_to_temp_dir(temp_test_dir):
 
     # Restore original working directory
     os.chdir(original_cwd)
+
+
+@pytest.fixture(scope="function")
+def runner():
+    """
+    Create a Click test runner for CLI testing.
+
+    This fixture provides a Click test runner that can be used to invoke
+    CLI commands in tests.
+
+    Returns:
+        click.testing.CliRunner: Click test runner instance
+    """
+    return click.testing.CliRunner()

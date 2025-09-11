@@ -73,7 +73,7 @@ class TestCLIBasic:
 
         # Run CLI with non-existent file - should raise BadParameter
         with pytest.raises(click.exceptions.BadParameter):
-            cli.main([str(non_existent_file)], standalone_mode=False)
+            cli.main(["learn", str(non_existent_file)], standalone_mode=False)
 
     def test_cli_handles_invalid_config_file(self, temp_test_dir, change_to_temp_dir):
         """Test that CLI handles invalid configuration file gracefully."""
@@ -87,7 +87,7 @@ invalid: [unclosed: bracket
 """)
 
         # Run CLI with invalid file
-        result = cli.main([str(invalid_config)], standalone_mode=False)
+        result = cli.main(["learn", str(invalid_config)], standalone_mode=False)
 
         # Should return non-zero exit code
         assert result != 0

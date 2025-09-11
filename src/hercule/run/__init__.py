@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 class Runner(BaseModel):
     ongoing_epoch: int = Field(default=0, description="")
     learning_metrics: list[EpochResult] = Field(default=[], description="")
+    testing_metrics: list[EpochResult] = Field(default=[], description="")
     directory_path: Path = Field(default=Path("."), description="")
     model: RLModel | None = Field(default=None, description="")
     environment: gym.Env | None = Field(default=None, description="")
@@ -96,6 +97,7 @@ class Runner(BaseModel):
         run_data = {
             "_ongoing_epoch": self.ongoing_epoch,
             "learning_metrics": [metric.model_dump() for metric in self.learning_metrics],
+            "testing_metrics": [metric.model_dump() for metric in self.testing_metrics],
         }
 
         # Écrire le fichier run_info.json
@@ -120,6 +122,9 @@ class Runner(BaseModel):
                 self.save(self.directory_path)
                 self.model.save(self.directory_path)
 
+        self.save(self.directory_path)
+        self.model.save(self.directory_path)
+
     def test(self, max_epoch: int = 1000):
         if self.model is None or self.environment is None:
             raise ValueError("Model and environment must be configured before testing")
@@ -128,6 +133,8 @@ class Runner(BaseModel):
             epoch_result = self.model.run_epoch(train_mode=False)
             self.learning_metrics.append(epoch_result)
             self.ongoing_epoch += 1
+
+        self.save(self.directory_path)
 
 
 def save_config_summary(config: HerculeConfig, output_dir: Path) -> None:

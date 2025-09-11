@@ -33,12 +33,6 @@ models:
       - key: "seed"
         value: 42
 
-# Configuration d'évaluation après l'entraînement
-evaluation:
-  num_episodes: 10
-  max_steps_per_episode: 100
-  render: false
-
 # Nombre maximum d'itérations d'entraînement
 max_iterations: 1000
 
