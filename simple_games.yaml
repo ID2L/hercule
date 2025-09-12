@@ -33,11 +33,17 @@ models:
       - key: "learning_rate"
         value: 0.2
       - key: "discount_factor"
-        value: 0.98
+        value: 0.8
       - key: "epsilon"
         value: 0.77
-      - key: "seed"
-        value: 42
+  - name: "simple_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.2
+      - key: "discount_factor"
+        value: 0.8
+      - key: "epsilon"
+        value: 0.77
 
 # Nombre maximum d'itérations d'entraînement
 learn_max_epoch: 3000
