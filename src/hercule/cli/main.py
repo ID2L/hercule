@@ -94,7 +94,7 @@ def learn(ctx, config_file: Path, output_dir: Path, verbose: int) -> None:
 @click.argument("environment_file", type=click.Path(exists=True, path_type=Path), metavar="ENVIRONMENT_FILE")
 @verbose_option
 @click.pass_context
-def play(ctx, model_file: Path, environment_file: Path, render_mode: str, verbose: int) -> None:
+def play(ctx, model_file: Path, environment_file: Path, verbose: int) -> None:
     """Play with a trained RL model in visual mode.
 
     This command loads a trained model and environment configuration to play episodes
@@ -108,11 +108,9 @@ def play(ctx, model_file: Path, environment_file: Path, render_mode: str, verbos
 
     logger.info(f"Starting Hercule play with model: {model_file}")
     logger.info(f"Environment file: {environment_file}")
-    logger.info(f"Render mode: {render_mode}")
 
     click.echo(f"\n🎮 Playing with model: {model_file}")
     click.echo(f"🌍 Environment: {environment_file}")
-    click.echo(f"🎨 Render mode: {render_mode}")
     click.echo("💡 Press Ctrl+C to stop the simulation")
 
     try:

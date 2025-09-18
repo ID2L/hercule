@@ -10,7 +10,6 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 from hercule.config import HerculeConfig, ParameterValue
-from hercule.environnements import EnvironmentManager
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
 
@@ -155,71 +154,6 @@ def save_config_summary(config: HerculeConfig, output_dir: Path) -> None:
     logger.info(f"Configuration summary saved to {summary_file}")
 
 
-def generate_filename_suffix(
-    hyperparameters: dict[str, ParameterValue], environment_hyperparameters: dict[str, ParameterValue] | None = None
-) -> str:
-    """
-    Generate a descriptive filename suffix from hyperparameters.
-
-    Args:
-        hyperparameters: Dictionary of hyperparameters and their values
-        environment_hyperparameters: Dictionary of environment hyperparameters and their values
-
-    Returns:
-        String suffix to append to filename
-    """
-    all_params = {}
-
-    # Add model hyperparameters (with shorter prefixes)
-    if hyperparameters:
-        for key, value in hyperparameters.items():
-            # Use shorter prefixes for common parameters
-            if key == "learning_rate":
-                all_params["lr"] = value
-            elif key == "discount_factor":
-                all_params["df"] = value
-            elif key == "epsilon":
-                all_params["eps"] = value
-            elif key == "epsilon_decay":
-                all_params["epd"] = value
-            elif key == "epsilon_min":
-                all_params["epm"] = value
-            elif key == "seed":
-                all_params["s"] = value
-            else:
-                all_params[f"m_{key}"] = value
-
-    # Add environment hyperparameters (with shorter prefixes)
-    if environment_hyperparameters:
-        for key, value in environment_hyperparameters.items():
-            if key == "map_name":
-                all_params["map"] = value
-            elif key == "is_slippery":
-                all_params["slip"] = value
-            else:
-                all_params[f"e_{key}"] = value
-
-    if not all_params:
-        return ""
-
-    # Convert hyperparameters to a sorted list of key-value pairs for consistency
-    param_pairs = []
-    for key, value in sorted(all_params.items()):
-        # Skip None values and empty strings
-        if value is not None and str(value).strip():
-            # Format the value appropriately
-            if isinstance(value, float):
-                formatted_value = f"{value:.3f}".rstrip("0").rstrip(".")
-            else:
-                formatted_value = str(value)
-            param_pairs.append(f"{key}_{formatted_value}")
-
-    if not param_pairs:
-        return ""
-
-    return "_" + "_".join(param_pairs)
-
-
 class TrainingProtocol(Protocol):
     """Protocol defining the interface for RL models."""
 
@@ -259,4 +193,4 @@ class TrainingProtocol(Protocol):
         ...
 
 
-__all__ = ["TrainingProtocol", "create_output_directory", "save_config_summary", "generate_filename_suffix"]
+__all__ = ["TrainingProtocol", "save_config_summary"]
