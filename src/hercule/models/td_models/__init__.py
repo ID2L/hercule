@@ -149,7 +149,7 @@ class TDModel(RLModel, ABC):
         return EpochResult(
             reward=float(episode_reward),
             steps_number=episode_length,
-            final_state="truncated" if truncated else "goal_reached",
+            final_state="truncated" if truncated else "terminated",
         )
 
     @abstractmethod

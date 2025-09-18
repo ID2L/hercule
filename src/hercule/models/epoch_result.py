@@ -6,4 +6,4 @@ from pydantic import BaseModel
 class EpochResult(BaseModel):
     reward: float
     steps_number: int
-    final_state: Literal["goal_reached", "truncated"]
+    final_state: Literal["terminated", "truncated"]

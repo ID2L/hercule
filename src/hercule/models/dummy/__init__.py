@@ -77,7 +77,7 @@ class DummyModel(RLModel):
         return EpochResult(
             reward=float(episode_reward),
             steps_number=episode_length,
-            final_state="truncated" if truncated else "goal_reached",
+            final_state="truncated" if truncated else "terminated",
         )
 
     def act(self, observation: np.ndarray, training: bool = False) -> int | np.ndarray:
