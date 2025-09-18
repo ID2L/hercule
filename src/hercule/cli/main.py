@@ -1,17 +1,12 @@
 """Main CLI entry point for Hercule RL framework."""
 
-import json
 import logging
 from functools import wraps
 from pathlib import Path
 
 import click
-import gymnasium as gym
 
-from hercule.config import load_config_from_yaml
-from hercule.environnements import load_environment
-from hercule.models import create_model
-from hercule.supervisor import Supervisor
+from hercule.controller import CancellationToken, play_interactive, run_learning
 
 
 def configure_logging(verbose: int) -> logging.Logger:
@@ -80,26 +75,11 @@ def learn(ctx, config_file: Path, output_dir: Path, verbose: int) -> None:
     click.echo(f"\n🎯 Learning with {config_file}")
 
     try:
-        # Load configuration
-        config = load_config_from_yaml(config_file)
-
-        # Override output directory if specified via CLI
+        # Echo output directory preview (real creation handled by controller)
         if output_dir != Path("outputs"):
-            config.output_dir = output_dir
+            click.echo(f"📁 Output directory override: {output_dir}")
 
-        # Create output directory
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        click.echo(f"📁 Output directory: {config.output_dir}")
-
-        # Save configuration summary at the root of the project directory
-        config_summary_file = config.output_dir / "config_summary.yaml"
-        with open(config_summary_file, "w", encoding="utf-8") as f:
-            f.write(str(config))
-        click.echo(f"📄 Configuration summary saved to: {config_summary_file}")
-
-        supervisor = Supervisor(config)
-        supervisor.execute_learn_phase()
-        supervisor.execute_test_phase()
+        run_learning(config_file=config_file, output_dir=output_dir if output_dir != Path("outputs") else None)
 
     except Exception as e:
         logger.error(f"Failed to process {config_file}: {e}")
@@ -112,14 +92,6 @@ def learn(ctx, config_file: Path, output_dir: Path, verbose: int) -> None:
 @cli.command()
 @click.argument("model_file", type=click.Path(exists=True, path_type=Path), metavar="MODEL_FILE")
 @click.argument("environment_file", type=click.Path(exists=True, path_type=Path), metavar="ENVIRONMENT_FILE")
-@click.option(
-    "--render-mode",
-    "-r",
-    type=click.Choice(["human", "rgb_array", "ansi"]),
-    default="human",
-    help="Render mode for visualization (default: human)",
-    show_default=True,
-)
 @verbose_option
 @click.pass_context
 def play(ctx, model_file: Path, environment_file: Path, render_mode: str, verbose: int) -> None:
@@ -144,65 +116,24 @@ def play(ctx, model_file: Path, environment_file: Path, render_mode: str, verbos
     click.echo("💡 Press Ctrl+C to stop the simulation")
 
     try:
-        # Load environment from saved configuration
-        environment = load_environment(environment_file)
-
-        # Create environment with render mode
-        env_with_render = gym.make(
-            environment.spec.id if environment.spec else "Unknown",
-            render_mode=render_mode,
-            **getattr(environment.spec, "kwargs", {}) if environment.spec else {},
-        )
-
-        # Load model
-        with open(model_file) as f:
-            model_data = json.load(f)
-
-        # Create and configure model
-        model_name = model_data.get("model_name", "simple_sarsa")
-        model = create_model(model_name)
-
-        # Configure model with environment
-        model.configure(env_with_render, {})
-
-        # Load model weights
-        model.load_from_dict(model_data)
-
-        # Play episodes until interrupted
-        total_reward = 0
-        episode_count = 0
+        cancel = CancellationToken()
 
         try:
-            while True:
-                obs, _ = env_with_render.reset()
-                episode_reward = 0
-                done = False
-                episode_count += 1
-
-                click.echo(f"\n🎯 Episode {episode_count}")
-
-                while not done:
-                    action = model.predict(obs)
-                    obs, reward, terminated, truncated, _ = env_with_render.step(action)
-                    episode_reward += reward
-                    done = terminated or truncated
-
-                    if render_mode == "human":
-                        env_with_render.render()
-
-                total_reward += episode_reward
-                click.echo(f"Episode {episode_count} reward: {episode_reward:.2f}")
-
+            result = play_interactive(
+                model_file=model_file,
+                environment_file=environment_file,
+                cancel_token=cancel,
+            )
         except KeyboardInterrupt:
+            # Redundant safety; controller already handles it, but we keep a clean UX
             click.echo("\n\n⏹️  Simulation stopped by user")
-            if episode_count > 0:
-                avg_reward = total_reward / episode_count
-                click.echo(f"📈 Average reward over {episode_count} episodes: {avg_reward:.2f}")
+            result = None
+
+        if result is not None:
+            if result.total_episodes > 0:
+                click.echo(f"📈 Average reward over {result.total_episodes} episodes: {result.average_reward:.2f}")
             else:
                 click.echo("📊 No episodes completed")
-
-        finally:
-            env_with_render.close()
 
     except Exception as e:
         logger.error(f"Failed to play with model {model_file}: {e}")
