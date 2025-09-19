@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Final
 
 from pydantic import BaseModel
 
@@ -10,6 +11,8 @@ from hercule.run import Runner
 
 
 logger = logging.getLogger(__name__)
+
+environment_file_name: Final = "environment.json"
 
 
 class Supervisor(BaseModel):
@@ -47,7 +50,7 @@ class Supervisor(BaseModel):
                 )
 
                 # Save environment configuration for later use
-                env_save_path = directory / "environment.json"
+                env_save_path = directory / environment_file_name
                 save_environment(environment, env_save_path)
 
                 model = create_model(model_config.name)

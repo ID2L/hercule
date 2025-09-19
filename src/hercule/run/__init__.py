@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Final, Protocol
 
 import gymnasium as gym
 import numpy as np
@@ -26,6 +26,7 @@ else:
 
 
 logger = logging.getLogger(__name__)
+run_info_file_name: Final = "run_info.json"
 
 
 class Runner(BaseModel):
@@ -50,7 +51,7 @@ class Runner(BaseModel):
         # Si il n'existe pas, on renvoie None
         # Si il existe, alors on instancie une classe du Runner avec les informations récupérer dans {directory_path}/run_info.json
         # en parsant le contenu du json
-        run_info_file = directory_path / "run_info.json"
+        run_info_file = directory_path / run_info_file_name
 
         if not run_info_file.exists():
             return Runner(learning_ongoing_epoch=0, testing_ongoing_epoch=0, directory_path=directory_path)
@@ -85,7 +86,7 @@ class Runner(BaseModel):
 
     def save(self, directory_path: Path):
         # écrit la représentation dans un fichier json à l'emplacement {directory_path}/run_info.json
-        run_info_file = directory_path / "run_info.json"
+        run_info_file = directory_path / run_info_file_name
 
         # Créer le répertoire s'il n'existe pas
         directory_path.mkdir(parents=True, exist_ok=True)
