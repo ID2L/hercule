@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from typing import Final
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -10,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 
 # Type alias for hyperparameter values
 ParameterValue = str | int | float | bool | None | list[str] | list[int] | list[float] | list[bool]
+
+config_file_name: Final = "config.yaml"
 
 
 class HyperParameter(BaseModel):
@@ -218,14 +221,14 @@ class HerculeConfig(BaseModel):
 
     def save(self) -> None:
         """
-        Save configuration summary to config_summary.yaml in the output directory.
+        Save configuration summary to config.yaml in the output directory.
 
         Creates the output directory if it doesn't exist.
         """
         output_path = self.base_output_dir / self.name
         output_path.mkdir(parents=True, exist_ok=True)
 
-        config_summary_file = output_path / "config_summary.yaml"
+        config_summary_file = output_path / config_file_name
         with open(config_summary_file, "w", encoding="utf-8") as f:
             f.write(str(self))
 

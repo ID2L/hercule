@@ -75,7 +75,7 @@ class TestCLILearnCommand:
         # Check that output files were created
         output_dir = temp_test_dir / "outputs"
         assert output_dir.exists()
-        assert (output_dir / "simple_test" / "config_summary.yaml").exists()
+        assert (output_dir / "simple_test" / "config.yaml").exists()
 
     def test_learn_command_with_output_dir_override(self, temp_test_dir, change_to_temp_dir, runner):
         """Test learn command with output directory override."""
@@ -95,7 +95,7 @@ class TestCLILearnCommand:
 
         # Check that files were created in custom directory
         assert custom_output_dir.exists()
-        assert (custom_output_dir / "simple_test" / "config_summary.yaml").exists()
+        assert (custom_output_dir / "simple_test" / "config.yaml").exists()
 
     def test_learn_command_with_verbose_option(self, temp_test_dir, change_to_temp_dir, runner):
         """Test learn command with verbose option."""
