@@ -51,14 +51,10 @@ def run_learning(config_file: Path, output_dir: Path | None = None) -> None:
     config: HerculeConfig = load_config_from_yaml(config_file)
 
     if output_dir is not None:
-        config.output_dir = output_dir
+        config.base_output_dir = output_dir
 
-    config.output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Persist a human-readable configuration snapshot next to run outputs
-    config_summary_file = config.output_dir / "config_summary.yaml"
-    with open(config_summary_file, "w", encoding="utf-8") as f:
-        f.write(str(config))
+    # Save configuration summary to the appropriate location
+    config.save()
 
     supervisor = Supervisor(config)
     supervisor.execute_learn_phase()

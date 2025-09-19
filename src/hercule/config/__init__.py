@@ -93,7 +93,7 @@ class HerculeConfig(BaseModel):
     )
     learn_max_epoch: int = Field(default=1000, ge=1, description="Maximum number of learning iterations")
     test_epoch: int = Field(default=100, ge=1, description="Number of testing iterations")
-    output_dir: Path = Field(default=Path("outputs"), description="Directory for saving results and models")
+    base_output_dir: Path = Field(default=Path("outputs"), description="Directory for saving results and models")
     save_every_n_epoch: int = Field(default=None, ge=1, description="Number of epochs to save the model")
     evaluation: RunConfig | None = Field(default=None, description="Evaluation configuration after training")
 
@@ -105,9 +105,9 @@ class HerculeConfig(BaseModel):
             raise ValueError("At least one environment must be specified")
         return v
 
-    @field_validator("output_dir", mode="before")
+    @field_validator("base_output_dir", mode="before")
     @classmethod
-    def validate_output_dir(cls, v: str | Path) -> Path:
+    def validate_base_output_dir(cls, v: str | Path) -> Path:
         """Convert string to Path if needed."""
         return Path(v) if isinstance(v, str) else v
 
@@ -206,13 +206,26 @@ class HerculeConfig(BaseModel):
         Get the directory for a specific model and environment.
 
         The directory path includes signatures of hyperparameters to ensure uniqueness:
-        output_dir/name/environment_name[env_signature]/model_name[model_signature]
+        base_output_dir/name/environment_name[env_signature]/model_name[model_signature]
         """
         # Get hyperparameter signatures
         env_signature = environment.get_hyperparameters_signature()
         model_signature = model.get_hyperparameters_signature()
 
-        return self.output_dir / self.name / environment.name / env_signature / model.name / model_signature
+        return self.base_output_dir / self.name / environment.name / env_signature / model.name / model_signature
+
+    def save(self) -> None:
+        """
+        Save configuration summary to config_summary.yaml in the output directory.
+
+        Creates the output directory if it doesn't exist.
+        """
+        output_path = self.base_output_dir / self.name
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        config_summary_file = output_path / "config_summary.yaml"
+        with open(config_summary_file, "w", encoding="utf-8") as f:
+            f.write(str(self))
 
 
 def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:
