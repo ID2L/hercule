@@ -73,7 +73,7 @@ class TestHerculeConfigYAML:
         assert config.environments[0] == "CartPole-v1"
         assert config.environments[1].name == "LunarLander-v2"
         assert config.learn_max_epoch == 1000
-        assert str(config.output_dir) == "multi_outputs"
+        assert str(config.base_output_dir) == "multi_outputs"
 
         # Test models
         assert len(config.models) == 2
@@ -153,7 +153,7 @@ environments:
 
         # Should use default values
         assert config.learn_max_epoch == 1000
-        assert str(config.output_dir) == "outputs"
+        assert str(config.base_output_dir) == "outputs"
         assert config.evaluation is None
         assert config.models == []
 

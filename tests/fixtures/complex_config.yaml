@@ -20,7 +20,7 @@ models:
       - key: use_layer_norm
         value: [true, false]
 learn_max_epoch: 500
-output_dir: complex_outputs
+base_output_dir: complex_outputs
 evaluation:
   num_episodes: 25
   render: true

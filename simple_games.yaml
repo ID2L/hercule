@@ -49,4 +49,4 @@ models:
 learn_max_epoch: 100
 save_every_n_epoch: 10
 # Répertoire de sortie
-output_dir: "outputs/simple_games"
+base_output_dir: "outputs/simple_games"

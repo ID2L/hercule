@@ -93,8 +93,10 @@ class HerculeConfig(BaseModel):
     )
     learn_max_epoch: int = Field(default=1000, ge=1, description="Maximum number of learning iterations")
     test_epoch: int = Field(default=100, ge=1, description="Number of testing iterations")
-    base_output_dir: Path = Field(default=Path("outputs"), description="Directory for saving results and models")
-    save_every_n_epoch: int = Field(default=None, ge=1, description="Number of epochs to save the model")
+    base_output_dir: Path = Field(
+        default_factory=lambda: Path("outputs"), description="Directory for saving results and models"
+    )
+    save_every_n_epoch: int | None = Field(default=None, ge=1, description="Number of epochs to save the model")
     evaluation: RunConfig | None = Field(default=None, description="Evaluation configuration after training")
 
     @field_validator("environments")

@@ -16,19 +16,22 @@ class TestHerculeConfigCreation:
         assert config.environments == ["CartPole-v1"]
         assert config.models == []
         assert config.learn_max_epoch == 1000
-        assert str(config.output_dir) == "outputs"
+        assert str(config.base_output_dir) == "outputs"
         assert config.evaluation is None
 
     def test_create_custom_config(self, temp_test_dir):
         """Test creating a configuration with custom values."""
         config = HerculeConfig(
-            name="test_config", environments=["LunarLander-v2"], learn_max_epoch=500, output_dir=Path("custom_outputs")
+            name="test_config",
+            environments=["LunarLander-v2"],
+            learn_max_epoch=500,
+            base_output_dir=Path("custom_outputs"),
         )
 
         assert config.name == "test_config"
         assert config.environments == ["LunarLander-v2"]
         assert config.learn_max_epoch == 500
-        assert str(config.output_dir) == "custom_outputs"
+        assert str(config.base_output_dir) == "custom_outputs"
 
     def test_create_config_with_models(self, temp_test_dir):
         """Test creating a configuration with models."""
@@ -66,7 +69,7 @@ class TestHerculeConfigDisplay:
         assert '"name": "hercule_run"' in config_str
         assert '"CartPole-v1"' in config_str
         assert '"learn_max_epoch": 1000' in config_str
-        assert '"output_dir": "outputs"' in config_str
+        assert '"base_output_dir": "outputs"' in config_str
         assert '"evaluation": null' in config_str
 
         # Should have proper indentation (2 spaces)
@@ -137,7 +140,7 @@ class TestHerculeConfigRecreation:
         assert recreated_config.name == original_config.name
         assert recreated_config.environments == original_config.environments
         assert recreated_config.learn_max_epoch == original_config.learn_max_epoch
-        assert str(recreated_config.output_dir) == str(original_config.output_dir)
+        assert str(recreated_config.base_output_dir) == str(original_config.base_output_dir)
 
     def test_recreate_from_repr_simple(self, temp_test_dir):
         """Test that a config can be recreated from its repr representation using eval()."""
@@ -153,7 +156,7 @@ class TestHerculeConfigRecreation:
         assert recreated_config.name == original_config.name
         assert recreated_config.environments == original_config.environments
         assert recreated_config.learn_max_epoch == original_config.learn_max_epoch
-        assert str(recreated_config.output_dir) == str(original_config.output_dir)
+        assert str(recreated_config.base_output_dir) == str(original_config.base_output_dir)
 
     def test_recreate_from_repr_complex(self, temp_test_dir):
         """Test recreating a complex configuration from repr using eval()."""

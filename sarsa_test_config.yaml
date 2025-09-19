@@ -69,4 +69,4 @@ models:
 learn_max_epoch: 200
 save_every_n_epoch: 20
 # Répertoire de sortie
-output_dir: "outputs"
+base_output_dir: "outputs"
