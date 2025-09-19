@@ -5,7 +5,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import cast, final
+from typing import Final, cast, final
 
 import gymnasium as gym
 import numpy as np
@@ -15,6 +15,8 @@ from hercule.models.epoch_result import EpochResult
 
 
 logger = logging.getLogger(__name__)
+
+model_file_name: Final = "model.json"
 
 
 class RLModel(ABC):
@@ -82,7 +84,7 @@ class RLModel(ABC):
         model_data = self._export()
 
         # Save as JSON
-        model_file = path / "model.json"
+        model_file = path / model_file_name
         with open(model_file, "w", encoding="utf-8") as f:
             json.dump(model_data, f, indent=2, ensure_ascii=False)
 
@@ -106,7 +108,7 @@ class RLModel(ABC):
         Args:
             path: Path to the saved model
         """
-        model_file = path / "model.json"
+        model_file = path / model_file_name
 
         if not model_file.exists():
             logger.info(f"No {self.model_name} model found at {path} (looked for {model_file})")

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from hercule.controller import CancellationToken, play_interactive, run_learning
+from hercule.controller import CancellationToken, generate_experiment_report, play_interactive, run_learning
 
 
 def configure_logging(verbose: int) -> logging.Logger:
@@ -147,6 +147,58 @@ def play(ctx, model_file: Path, environment_file: Path, no_render: bool, verbose
         return
 
     logger.info("Hercule play completed")
+
+
+@cli.command()
+@click.argument("experiment_path", type=click.Path(exists=True, path_type=Path), metavar="EXPERIMENT_PATH")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    help="Output path for the generated report (default: experiment_path/report.py)",
+)
+@verbose_option
+@click.pass_context
+def report(ctx, experiment_path: Path, output: Path | None, verbose: int) -> None:
+    """Generate a comprehensive report for an experiment.
+
+    This command creates a detailed Jupyter-compatible report with visualizations
+    and analysis of the experiment results, including learning progress, evaluation
+    metrics, and performance statistics.
+
+    EXPERIMENT_PATH: Path to the experiment directory containing JSON files.
+    """
+    logger = configure_logging(verbose)
+
+    logger.info(f"Generating report for experiment: {experiment_path}")
+
+    click.echo(f"\n📊 Generating report for experiment: {experiment_path}")
+
+    try:
+        report_path = generate_experiment_report(experiment_path, output)
+
+        click.echo(f"✅ Report generated successfully: {report_path}")
+        click.echo("\n📖 To view the report:")
+        click.echo("1. Open a Jupyter notebook")
+        click.echo(f"2. Run the cells in: {report_path}")
+        click.echo("3. The report will display visualizations and analysis")
+
+    except FileNotFoundError as e:
+        logger.error(f"Experiment directory not found: {e}")
+        click.echo(f"❌ Experiment directory not found: {e}")
+        return
+
+    except ValueError as e:
+        logger.error(f"Invalid experiment data: {e}")
+        click.echo(f"❌ Invalid experiment data: {e}")
+        return
+
+    except Exception as e:
+        logger.error(f"Failed to generate report: {e}")
+        click.echo(f"❌ Error generating report: {e}")
+        return
+
+    logger.info("Report generation completed")
 
 
 if __name__ == "__main__":

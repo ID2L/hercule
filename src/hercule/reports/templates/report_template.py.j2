@@ -1,0 +1,221 @@
+# -*- coding: utf-8 -*-
+"""
+Experiment Report
+Generated automatically from experiment data
+Experiment Path: {{ experiment_path }}
+"""
+
+import base64
+import json
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from pathlib import Path
+
+# =============================================================================
+# Experiment Overview
+# =============================================================================
+
+print("# Experiment Report")
+print(f"**Experiment Path:** `{{ experiment_path }}`")
+print()
+
+# Environment Information
+{% if environment_data %}
+print("## Environment Configuration")
+print("```json")
+print(json.dumps({{ environment_data | tojson(indent=2) }}, indent=2))
+print("```")
+print()
+{% endif %}
+
+# Model Information
+{% if model_data %}
+print("## Model Configuration")
+print("```json")
+print(json.dumps({{ model_data | tojson(indent=2) }}, indent=2))
+print("```")
+print()
+{% endif %}
+
+# Training Information
+{% if run_info_data %}
+print("## Training Information")
+print(f"- **Learning Epochs:** {{ run_info_data.learning_ongoing_epoch }}")
+print(f"- **Testing Epochs:** {{ run_info_data.testing_ongoing_epoch }}")
+print()
+{% endif %}
+
+# =============================================================================
+# Data Loading and Preparation
+# =============================================================================
+
+# Load experiment data
+learning_rewards = {{ learning_rewards | tojson }}
+learning_steps = {{ learning_steps | tojson }}
+testing_rewards = {{ testing_rewards | tojson }}
+testing_steps = {{ testing_steps | tojson }}
+
+print("## Data Summary")
+print(f"- **Learning Episodes:** {len(learning_rewards)}")
+print(f"- **Testing Episodes:** {len(testing_rewards)}")
+{% if learning_rewards %}
+print(f"- **Learning Reward Range:** [{min(learning_rewards):.3f}, {max(learning_rewards):.3f}]")
+print(f"- **Learning Reward Mean:** {np.mean(learning_rewards):.3f} ± {np.std(learning_rewards):.3f}")
+{% endif %}
+{% if testing_rewards %}
+print(f"- **Testing Reward Range:** [{min(testing_rewards):.3f}, {max(testing_rewards):.3f}]")
+print(f"- **Testing Reward Mean:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
+{% endif %}
+print()
+
+# =============================================================================
+# Learning Progress Visualization
+# =============================================================================
+
+{% if learning_rewards %}
+print("## Learning Progress")
+
+# Create learning progress plots
+fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+# Plot 1: Learning rewards over time
+ax1 = axes[0, 0]
+ax1.plot(learning_rewards, alpha=0.7, label='Episode Reward', color='blue')
+ax1.set_title('Learning Progress - Rewards')
+ax1.set_xlabel('Episode')
+ax1.set_ylabel('Reward')
+ax1.grid(True, alpha=0.3)
+
+# Add moving average
+window_size = min(50, len(learning_rewards) // 10)
+if window_size > 1:
+    moving_avg = pd.Series(learning_rewards).rolling(window=window_size).mean()
+    ax1.plot(moving_avg, label=f'Moving Average (window={window_size})', linewidth=2, color='red')
+    ax1.legend()
+
+# Plot 2: Learning steps over time
+ax2 = axes[0, 1]
+ax2.plot(learning_steps, alpha=0.7, label='Episode Steps', color='green')
+ax2.set_title('Learning Progress - Steps')
+ax2.set_xlabel('Episode')
+ax2.set_ylabel('Steps')
+ax2.grid(True, alpha=0.3)
+
+if window_size > 1:
+    moving_avg_steps = pd.Series(learning_steps).rolling(window=window_size).mean()
+    ax2.plot(moving_avg_steps, label=f'Moving Average (window={window_size})', linewidth=2, color='red')
+    ax2.legend()
+
+# Plot 3: Reward distribution
+ax3 = axes[1, 0]
+ax3.hist(learning_rewards, bins=30, alpha=0.7, edgecolor='black', color='blue')
+ax3.set_title('Reward Distribution (Learning)')
+ax3.set_xlabel('Reward')
+ax3.set_ylabel('Frequency')
+ax3.grid(True, alpha=0.3)
+
+# Plot 4: Steps distribution
+ax4 = axes[1, 1]
+ax4.hist(learning_steps, bins=30, alpha=0.7, edgecolor='black', color='green')
+ax4.set_title('Steps Distribution (Learning)')
+ax4.set_xlabel('Steps')
+ax4.set_ylabel('Frequency')
+ax4.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Learning statistics
+print("### Learning Statistics")
+print(f"- **Mean Reward:** {np.mean(learning_rewards):.3f} ± {np.std(learning_rewards):.3f}")
+print(f"- **Mean Steps:** {np.mean(learning_steps):.3f} ± {np.std(learning_steps):.3f}")
+print(f"- **Success Rate:** {(np.array(learning_rewards) > 0).mean() * 100:.1f}%")
+print()
+
+{% endif %}
+
+# =============================================================================
+# Final Model Evaluation
+# =============================================================================
+
+{% if testing_rewards %}
+print("## Final Model Evaluation")
+
+# Create evaluation plots
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+# Boxplot for testing rewards
+ax1 = axes[0]
+ax1.boxplot(testing_rewards, labels=['Testing Rewards'])
+ax1.set_title('Final Model Evaluation - Rewards')
+ax1.set_ylabel('Reward')
+ax1.grid(True, alpha=0.3)
+
+# Boxplot for testing steps
+ax2 = axes[1]
+ax2.boxplot(testing_steps, labels=['Testing Steps'])
+ax2.set_title('Final Model Evaluation - Steps')
+ax2.set_ylabel('Steps')
+ax2.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Evaluation statistics
+print("### Evaluation Statistics")
+print(f"- **Mean Reward:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
+print(f"- **Mean Steps:** {np.mean(testing_steps):.3f} ± {np.std(testing_steps):.3f}")
+print(f"- **Success Rate:** {(np.array(testing_rewards) > 0).mean() * 100:.1f}%")
+print(f"- **Min Reward:** {np.min(testing_rewards):.3f}")
+print(f"- **Max Reward:** {np.max(testing_rewards):.3f}")
+print()
+
+{% endif %}
+
+# =============================================================================
+# Performance Analysis
+# =============================================================================
+
+print("## Performance Analysis")
+
+{% if learning_rewards and testing_rewards %}
+# Compare learning vs testing performance
+learning_mean = np.mean(learning_rewards)
+testing_mean = np.mean(testing_rewards)
+improvement = ((testing_mean - learning_mean) / abs(learning_mean)) * 100 if learning_mean != 0 else 0
+
+print(f"- **Learning Performance:** {learning_mean:.3f} ± {np.std(learning_rewards):.3f}")
+print(f"- **Testing Performance:** {testing_mean:.3f} ± {np.std(testing_rewards):.3f}")
+print(f"- **Performance Change:** {improvement:+.1f}%")
+
+# Learning curve analysis
+if len(learning_rewards) > 100:
+    early_performance = np.mean(learning_rewards[:len(learning_rewards)//3])
+    late_performance = np.mean(learning_rewards[2*len(learning_rewards)//3:])
+    learning_improvement = ((late_performance - early_performance) / abs(early_performance)) * 100 if early_performance != 0 else 0
+    print(f"- **Learning Improvement:** {learning_improvement:+.1f}% (early vs late training)")
+{% endif %}
+
+print()
+
+# =============================================================================
+# Conclusion
+# =============================================================================
+
+print("## Conclusion")
+{% if learning_rewards %}
+print(f"The experiment completed {len(learning_rewards)} learning episodes")
+{% if testing_rewards %}
+print(f"and {len(testing_rewards)} testing episodes.")
+{% endif %}
+{% if learning_rewards and testing_rewards %}
+if np.mean(testing_rewards) > np.mean(learning_rewards):
+    print("The model shows good generalization with testing performance exceeding learning performance.")
+else:
+    print("The model may be overfitting as testing performance is lower than learning performance.")
+{% endif %}
+{% endif %}
+
+print("\n---")
+print("*Report generated automatically by Hercule*")

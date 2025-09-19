@@ -18,6 +18,7 @@ import gymnasium as gym
 from hercule.config import HerculeConfig, load_config_from_yaml
 from hercule.environnements import load_environment
 from hercule.models import RLModel, create_model
+from hercule.reports import generate_report
 from hercule.supervisor import Supervisor
 
 
@@ -154,3 +155,38 @@ def play_interactive(
         return PlayResult(total_episodes=0, total_reward=0.0)
     finally:
         env_with_render.close()
+
+
+def generate_experiment_report(experiment_path: Path, output_path: Path | None = None) -> Path:
+    """Generate a comprehensive report for an experiment.
+
+    This function orchestrates the report generation process, providing a clean
+    interface for CLI and other frontends to generate experiment reports.
+
+    Args:
+        experiment_path: Path to the experiment directory containing JSON files
+        output_path: Optional path where to save the generated report
+
+    Returns:
+        Path to the generated report file
+
+    Raises:
+        ValueError: If experiment data cannot be loaded
+        FileNotFoundError: If experiment directory doesn't exist
+    """
+    if not experiment_path.exists():
+        raise FileNotFoundError(f"Experiment directory not found: {experiment_path}")
+
+    if not experiment_path.is_dir():
+        raise ValueError(f"Path is not a directory: {experiment_path}")
+
+    logger.info(f"Generating report for experiment: {experiment_path}")
+
+    try:
+        report_path = generate_report(experiment_path, output_path)
+        logger.info(f"Report generated successfully: {report_path}")
+        return report_path
+
+    except Exception as e:
+        logger.error(f"Failed to generate report for {experiment_path}: {e}")
+        raise ValueError(f"Failed to generate report: {e}") from e
