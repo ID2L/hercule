@@ -98,13 +98,35 @@ class RLModel(ABC):
         """
         pass
 
-    @abstractmethod
+    @final
     def load(self, path: Path) -> None:
         """
         Load a trained model from disk.
 
         Args:
             path: Path to the saved model
+        """
+        model_file = path / "model.json"
+
+        if not model_file.exists():
+            logger.info(f"No {self.model_name} model found at {path} (looked for {model_file})")
+            return
+
+        with open(model_file, encoding="utf-8") as f:
+            model_data = json.load(f)
+
+        # Import model data using implementation
+        self._import(model_data)
+
+        logger.info(f"Loaded {self.model_name} model from JSON: {model_file}")
+
+    @abstractmethod
+    def _import(self, model_data: dict) -> None:
+        """
+        Import model data from serialized format.
+
+        Args:
+            model_data: Dictionary containing model data from JSON
         """
         pass
 

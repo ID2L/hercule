@@ -1,10 +1,8 @@
 """Abstract Temporal Difference (TD) model for reinforcement learning algorithms."""
 
-import json
 import logging
 import random
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import gymnasium as gym
@@ -316,31 +314,15 @@ class TDModel(RLModel, ABC):
 
         return model_data
 
-    def load(self, path: Path) -> None:
+    def _import(self, model_data: dict) -> None:
         """
-        Load a trained TD model from disk.
+        Import TD model data from serialized format.
 
         Args:
-            path: Path to the saved model
-
-        Raises:
-            FileNotFoundError: If model file is not found
+            model_data: Dictionary containing model data from JSON
         """
-        json_file = path / "model.json"
-
-        # Try to load JSON format first, fall back to pickle
-        if json_file.exists():
-            with open(json_file, encoding="utf-8") as f:
-                model_data = json.load(f)
-
-            # Convert Q-table back from JSON format
-            self._q_table = np.array(model_data["q_table"])
-
-            logger.info(f"Loaded {self.model_name} model from JSON: {json_file}")
-
-        else:
-            msg = f"No {self.model_name} model found at {path} (looked for {json_file})"
-            logger.info(msg)
+        # Convert Q-table back from JSON format
+        self._q_table = np.array(model_data["q_table"])
 
         # Note: Environment needs to be configured separately after loading
         # as it cannot be serialized
