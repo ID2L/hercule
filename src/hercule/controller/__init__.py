@@ -77,6 +77,7 @@ def play_interactive(
     model_file: Path,
     environment_file: Path,
     cancel_token: CancellationToken | None = None,
+    render_mode: str | None = "human",
 ) -> PlayResult:
     """Run an interactive simulation of a trained model until cancelled.
 
@@ -97,7 +98,7 @@ def play_interactive(
     env_id = environment.spec.id if getattr(environment, "spec", None) else "Unknown"
     kwargs = getattr(getattr(environment, "spec", None), "kwargs", {}) or {}
 
-    env_with_render = gym.make(env_id, render_mode="human", **kwargs)
+    env_with_render = gym.make(env_id, render_mode=render_mode, **kwargs)
 
     try:
         # Load model payload
@@ -137,7 +138,8 @@ def play_interactive(
                     episode_reward += float(reward)
                     done = bool(terminated or truncated)
 
-                    env_with_render.render()
+                    if render_mode is not None:
+                        env_with_render.render()
 
             except KeyboardInterrupt:
                 # Graceful interruption inside an episode

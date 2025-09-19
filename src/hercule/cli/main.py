@@ -92,9 +92,16 @@ def learn(ctx, config_file: Path, output_dir: Path, verbose: int) -> None:
 @cli.command()
 @click.argument("model_file", type=click.Path(exists=True, path_type=Path), metavar="MODEL_FILE")
 @click.argument("environment_file", type=click.Path(exists=True, path_type=Path), metavar="ENVIRONMENT_FILE")
+@click.option(
+    "--no-render",
+    is_flag=True,
+    default=False,
+    help="Disable visual rendering (useful for testing and CI/CD)",
+    show_default=True,
+)
 @verbose_option
 @click.pass_context
-def play(ctx, model_file: Path, environment_file: Path, verbose: int) -> None:
+def play(ctx, model_file: Path, environment_file: Path, no_render: bool, verbose: int) -> None:
     """Play with a trained RL model in visual mode.
 
     This command loads a trained model and environment configuration to play episodes
@@ -121,6 +128,7 @@ def play(ctx, model_file: Path, environment_file: Path, verbose: int) -> None:
                 model_file=model_file,
                 environment_file=environment_file,
                 cancel_token=cancel,
+                render_mode=None if no_render else "human",
             )
         except KeyboardInterrupt:
             # Redundant safety; controller already handles it, but we keep a clean UX

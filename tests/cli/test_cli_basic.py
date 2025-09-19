@@ -168,8 +168,8 @@ class TestCLIPlayCommand:
         env_file = temp_test_dir / "test_env.json"
         env_file.write_text(json.dumps(env_data))
 
-        # Run play command
-        result = runner.invoke(cli, ["play", str(model_file), str(env_file)])
+        # Run play command with no-render option to avoid GUI windows
+        result = runner.invoke(cli, ["play", str(model_file), str(env_file), "--no-render"])
 
         # Should succeed (or at least not fail on file loading)
         # Note: This might fail due to environment setup, but should not fail on file loading
@@ -188,8 +188,8 @@ class TestCLIPlayCommand:
         env_file = temp_test_dir / "test_env.json"
         env_file.write_text(json.dumps(env_data))
 
-        # Run play command with verbose option
-        result = runner.invoke(cli, ["play", str(model_file), str(env_file), "--verbose"])
+        # Run play command with verbose option and no-render to avoid GUI windows
+        result = runner.invoke(cli, ["play", str(model_file), str(env_file), "--verbose", "--no-render"])
 
         # Should succeed or fail gracefully
         if result.exit_code != 0:
