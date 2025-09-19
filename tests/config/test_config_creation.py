@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from hercule.config import HerculeConfig, HyperParameter, ModelConfig, RunConfig
+from hercule.config import HerculeConfig, HyperParameter, ModelConfig, RunConfig, load_config_from_yaml
 
 
 class TestHerculeConfigCreation:
@@ -230,3 +230,52 @@ class TestHerculeConfigRecreation:
         assert recreated_config.evaluation is not None
         assert recreated_config.evaluation.num_episodes == 25
         assert recreated_config.evaluation.render is False
+
+    def test_save_and_load_config(self, temp_test_dir):
+        """Test saving a configuration to file and loading it back."""
+        # Create a test configuration
+        model_config = ModelConfig(
+            name="test_model",
+            hyperparameters=[
+                HyperParameter(key="learning_rate", value=0.01),
+                HyperParameter(key="epsilon", value=0.1),
+            ],
+        )
+
+        original_config = HerculeConfig(
+            name="save_load_test",
+            environments=["CartPole-v1"],
+            models=[model_config],
+            learn_max_epoch=500,
+            base_output_dir=Path("test_outputs"),
+            save_every_n_epoch=50,
+            evaluation=RunConfig(num_episodes=10, render=True),
+        )
+
+        # Save configuration to a temporary file
+        config_file = temp_test_dir / "test_config.yaml"
+        with open(config_file, "w", encoding="utf-8") as f:
+            f.write(str(original_config))
+
+        # Load configuration back from file
+        loaded_config = load_config_from_yaml(config_file)
+
+        # Verify all properties are preserved
+        assert loaded_config.name == original_config.name
+        assert loaded_config.environments == original_config.environments
+        assert loaded_config.learn_max_epoch == original_config.learn_max_epoch
+        assert str(loaded_config.base_output_dir) == str(original_config.base_output_dir)
+        assert loaded_config.save_every_n_epoch == original_config.save_every_n_epoch
+
+        # Verify models
+        assert len(loaded_config.models) == 1
+        assert loaded_config.models[0].name == original_config.models[0].name
+        assert len(loaded_config.models[0].hyperparameters) == len(original_config.models[0].hyperparameters)
+        for i, hp in enumerate(loaded_config.models[0].hyperparameters):
+            assert hp.key == original_config.models[0].hyperparameters[i].key
+            assert hp.value == original_config.models[0].hyperparameters[i].value
+
+        # Verify evaluation
+        assert loaded_config.evaluation is not None
+        assert loaded_config.evaluation.num_episodes == original_config.evaluation.num_episodes
+        assert loaded_config.evaluation.render == original_config.evaluation.render
