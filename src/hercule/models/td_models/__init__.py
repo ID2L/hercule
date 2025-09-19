@@ -299,24 +299,13 @@ class TDModel(RLModel, ABC):
         else:
             return self.exploit(state)
 
-    def save(
-        self,
-        path: Path,
-        environment_name: str | None = None,
-        environment_hyperparameters: dict | None = None,
-        model_hyperparameters: dict | None = None,
-    ) -> None:
+    def _export(self) -> dict:
         """
-        Save the trained TD model to disk in JSON format.
+        Export TD model data for serialization.
 
-        Args:
-            path: Path where to save the model
-            environment_name: Name of the environment used for training
-            environment_hyperparameters: Environment hyperparameters used
-            model_hyperparameters: Model hyperparameters used for training
+        Returns:
+            Dictionary containing model data ready for JSON serialization
         """
-        path.mkdir(parents=True, exist_ok=True)
-
         # Convert Q-table to JSON-serializable format
         json_q_table = self._q_table.tolist()
 
@@ -325,11 +314,7 @@ class TDModel(RLModel, ABC):
             "q_table": json_q_table,
         }
 
-        # Save as JSON
-        model_file = path / "model.json"
-        with open(model_file, "w", encoding="utf-8") as f:
-            json.dump(model_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"'{self.model_name}' model saved to {path} (JSON: {model_file})")
+        return model_data
 
     def load(self, path: Path) -> None:
         """

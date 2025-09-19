@@ -1,6 +1,7 @@
 """Abstract base classes and interfaces for reinforcement learning models."""
 
 import importlib
+import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -67,13 +68,33 @@ class RLModel(ABC):
     def run_epoch(self, train_mode=False) -> EpochResult:
         pass
 
-    @abstractmethod
+    @final
     def save(self, path: Path) -> None:
         """
         Save the trained model to disk.
 
         Args:
             path: Path where to save the model
+        """
+        path.mkdir(parents=True, exist_ok=True)
+
+        # Get model data from implementation
+        model_data = self._export()
+
+        # Save as JSON
+        model_file = path / "model.json"
+        with open(model_file, "w", encoding="utf-8") as f:
+            json.dump(model_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"'{self.model_name}' model saved to {path} (JSON: {model_file})")
+
+    @abstractmethod
+    def _export(self) -> dict:
+        """
+        Export model data for serialization.
+
+        Returns:
+            Dictionary containing model data ready for JSON serialization
         """
         pass
 
