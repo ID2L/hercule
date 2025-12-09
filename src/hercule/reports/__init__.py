@@ -19,6 +19,65 @@ from hercule.supervisor import environment_file_name
 logger = logging.getLogger(__name__)
 
 
+def _format_python_value(value: Any, indent: int = 0, current_indent: int = 0) -> str:
+    """
+    Format a Python value as a Python literal string.
+
+    Converts dictionaries, lists, booleans, None, etc. to valid Python code.
+    This is used to generate Python code from template data.
+
+    Args:
+        value: The value to format
+        indent: Number of spaces for indentation levels
+        current_indent: Current indentation level
+
+    Returns:
+        String representation of the value as valid Python code
+    """
+    indent_str = " " * (current_indent * indent)
+
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return repr(value)
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        items = []
+        next_indent = current_indent + 1
+        next_indent_str = " " * (next_indent * indent)
+        for k, v in value.items():
+            key_str = repr(k) if isinstance(k, str) else repr(k)
+            val_str = _format_python_value(v, indent, next_indent)
+            items.append(f"{next_indent_str}{key_str}: {val_str}")
+        return "{\n" + ",\n".join(items) + f"\n{indent_str}}}"
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "[]" if isinstance(value, list) else "()"
+        items = []
+        next_indent = current_indent + 1
+        next_indent_str = " " * (next_indent * indent)
+        if isinstance(value, list):
+            bracket_open = "["
+            bracket_close = "]"
+        else:
+            bracket_open = "("
+            bracket_close = ")"
+            # Add trailing comma for single-element tuples
+            if len(value) == 1:
+                bracket_close = ",)"
+        for item in value:
+            item_str = _format_python_value(item, indent, next_indent)
+            items.append(f"{next_indent_str}{item_str}")
+        return f"{bracket_open}\n" + ",\n".join(items) + f"\n{indent_str}{bracket_close}"
+    # Fallback to repr for other types
+    return repr(value)
+
+
 class ExperimentData:
     """Container for experiment data loaded from JSON files."""
 
@@ -112,6 +171,8 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
     # Create template environment
     template_dir = Path(__file__).parent / "templates"
     env = Environment(loader=FileSystemLoader(template_dir))
+    # Add custom filter to format Python values correctly (False/True instead of false/true)
+    env.filters["topython"] = lambda v, indent=2: _format_python_value(v, indent=indent)
     template = env.get_template("report_template.py.j2")
 
     # Prepare template context

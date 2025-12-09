@@ -24,7 +24,8 @@ print()
 {% if environment_data %}
 print("## Environment Configuration")
 print("```json")
-print(json.dumps({{ environment_data | tojson(indent=2) }}, indent=2))
+environment_config = {{ environment_data | topython(indent=2) }}
+print(json.dumps(environment_config, indent=2))
 print("```")
 print()
 {% endif %}
@@ -33,7 +34,8 @@ print()
 {% if model_data %}
 print("## Model Configuration")
 print("```json")
-print(json.dumps({{ model_data | tojson(indent=2) }}, indent=2))
+model_config = {{ model_data | topython(indent=2) }}
+print(json.dumps(model_config, indent=2))
 print("```")
 print()
 {% endif %}
@@ -51,10 +53,10 @@ print()
 # =============================================================================
 
 # Load experiment data
-learning_rewards = {{ learning_rewards | tojson }}
-learning_steps = {{ learning_steps | tojson }}
-testing_rewards = {{ testing_rewards | tojson }}
-testing_steps = {{ testing_steps | tojson }}
+learning_rewards = {{ learning_rewards | topython }}
+learning_steps = {{ learning_steps | topython }}
+testing_rewards = {{ testing_rewards | topython }}
+testing_steps = {{ testing_steps | topython }}
 
 print("## Data Summary")
 print(f"- **Learning Episodes:** {len(learning_rewards)}")
