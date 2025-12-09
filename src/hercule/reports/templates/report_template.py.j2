@@ -1,3 +1,16 @@
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.14.5
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
 # -*- coding: utf-8 -*-
 """
 Experiment Report
@@ -5,6 +18,13 @@ Generated automatically from experiment data
 Experiment Path: {{ experiment_path }}
 """
 
+# %% [markdown]
+# # Experiment Report
+#
+# **Experiment Path:** `{{ experiment_path }}`
+
+# %%
+# Imports
 import base64
 import json
 import matplotlib.pyplot as plt
@@ -12,52 +32,63 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-# =============================================================================
-# Experiment Overview
-# =============================================================================
+# %% [markdown]
+# ## Experiment Overview
 
-print("# Experiment Report")
-print(f"**Experiment Path:** `{{ experiment_path }}`")
-print()
-
-# Environment Information
 {% if environment_data %}
+# %%
+# Load environment configuration
+environment_config = {{ environment_data | topython(indent=2) }}
+
+# %% [markdown]
+# ### Environment Configuration
+#
+# Environment configuration used for the experiment:
+
+# %%
 print("## Environment Configuration")
 print("```json")
-environment_config = {{ environment_data | topython(indent=2) }}
 print(json.dumps(environment_config, indent=2))
 print("```")
-print()
 {% endif %}
-
-# Model Information
 {% if model_data %}
+# %%
+# Load model configuration
+model_config = {{ model_data | topython(indent=2) }}
+
+# %% [markdown]
+# ### Model Configuration
+#
+# Model configuration used for the experiment:
+
+# %%
 print("## Model Configuration")
 print("```json")
-model_config = {{ model_data | topython(indent=2) }}
 print(json.dumps(model_config, indent=2))
 print("```")
-print()
 {% endif %}
-
-# Training Information
 {% if run_info_data %}
-print("## Training Information")
-print(f"- **Learning Epochs:** {{ run_info_data.learning_ongoing_epoch }}")
-print(f"- **Testing Epochs:** {{ run_info_data.testing_ongoing_epoch }}")
-print()
+# %% [markdown]
+# ### Training Information
+#
+# - **Learning Epochs:** {{ run_info_data.learning_ongoing_epoch }}
+# - **Testing Epochs:** {{ run_info_data.testing_ongoing_epoch }}
 {% endif %}
+# %% [markdown]
+# ## Data Loading and Preparation
 
-# =============================================================================
-# Data Loading and Preparation
-# =============================================================================
-
+# %%
 # Load experiment data
 learning_rewards = {{ learning_rewards | topython }}
 learning_steps = {{ learning_steps | topython }}
 testing_rewards = {{ testing_rewards | topython }}
 testing_steps = {{ testing_steps | topython }}
 
+# %% [markdown]
+# ### Data Summary
+
+# %%
+# Display data summary
 print("## Data Summary")
 print(f"- **Learning Episodes:** {len(learning_rewards)}")
 print(f"- **Testing Episodes:** {len(testing_rewards)}")
@@ -69,15 +100,13 @@ print(f"- **Learning Reward Mean:** {np.mean(learning_rewards):.3f} ± {np.std(l
 print(f"- **Testing Reward Range:** [{min(testing_rewards):.3f}, {max(testing_rewards):.3f}]")
 print(f"- **Testing Reward Mean:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
 {% endif %}
-print()
-
-# =============================================================================
-# Learning Progress Visualization
-# =============================================================================
-
 {% if learning_rewards %}
-print("## Learning Progress")
+# %% [markdown]
+# ## Learning Progress Visualization
+#
+# This section presents the learning progress with visualizations of rewards and steps.
 
+# %%
 # Create learning progress plots
 fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
@@ -128,22 +157,23 @@ ax4.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
 
+# %% [markdown]
+# ### Learning Statistics
+
+# %%
 # Learning statistics
 print("### Learning Statistics")
 print(f"- **Mean Reward:** {np.mean(learning_rewards):.3f} ± {np.std(learning_rewards):.3f}")
 print(f"- **Mean Steps:** {np.mean(learning_steps):.3f} ± {np.std(learning_steps):.3f}")
 print(f"- **Success Rate:** {(np.array(learning_rewards) > 0).mean() * 100:.1f}%")
-print()
-
 {% endif %}
-
-# =============================================================================
-# Final Model Evaluation
-# =============================================================================
-
 {% if testing_rewards %}
-print("## Final Model Evaluation")
+# %% [markdown]
+# ## Final Model Evaluation
+#
+# This section presents the final evaluation of the model on test data.
 
+# %%
 # Create evaluation plots
 fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -164,6 +194,10 @@ ax2.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
 
+# %% [markdown]
+# ### Evaluation Statistics
+
+# %%
 # Evaluation statistics
 print("### Evaluation Statistics")
 print(f"- **Mean Reward:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
@@ -171,18 +205,14 @@ print(f"- **Mean Steps:** {np.mean(testing_steps):.3f} ± {np.std(testing_steps)
 print(f"- **Success Rate:** {(np.array(testing_rewards) > 0).mean() * 100:.1f}%")
 print(f"- **Min Reward:** {np.min(testing_rewards):.3f}")
 print(f"- **Max Reward:** {np.max(testing_rewards):.3f}")
-print()
-
 {% endif %}
+# %% [markdown]
+# ## Performance Analysis
+#
+# Comparative analysis of learning and testing performance.
 
-# =============================================================================
-# Performance Analysis
-# =============================================================================
-
-print("## Performance Analysis")
-
-{% if learning_rewards and testing_rewards %}
-# Compare learning vs testing performance
+# %%
+{% if learning_rewards and testing_rewards %}# Compare learning vs testing performance
 learning_mean = np.mean(learning_rewards)
 testing_mean = np.mean(testing_rewards)
 improvement = ((testing_mean - learning_mean) / abs(learning_mean)) * 100 if learning_mean != 0 else 0
@@ -198,26 +228,21 @@ if len(learning_rewards) > 100:
     learning_improvement = ((late_performance - early_performance) / abs(early_performance)) * 100 if early_performance != 0 else 0
     print(f"- **Learning Improvement:** {learning_improvement:+.1f}% (early vs late training)")
 {% endif %}
+# %% [markdown]
+# ## Conclusion
 
-print()
-
-# =============================================================================
-# Conclusion
-# =============================================================================
-
+# %%
+{% if learning_rewards and testing_rewards %}# Final conclusion analysis
 print("## Conclusion")
-{% if learning_rewards %}
 print(f"The experiment completed {len(learning_rewards)} learning episodes")
 {% if testing_rewards %}
 print(f"and {len(testing_rewards)} testing episodes.")
 {% endif %}
-{% if learning_rewards and testing_rewards %}
 if np.mean(testing_rewards) > np.mean(learning_rewards):
     print("The model shows good generalization with testing performance exceeding learning performance.")
 else:
     print("The model may be overfitting as testing performance is lower than learning performance.")
 {% endif %}
-{% endif %}
-
-print("\n---")
-print("*Report generated automatically by Hercule*")
+# %% [markdown]
+# ---
+# *Report generated automatically by Hercule*

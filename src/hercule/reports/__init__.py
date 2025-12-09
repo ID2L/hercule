@@ -153,6 +153,9 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
     """
     Generate a Jupyter notebook report for an experiment.
 
+    The generated report is a Python file (.py) in Jupytext format with cell markers (# %%).
+    It can be opened directly as a Jupyter notebook using Jupytext or any IDE that supports it.
+
     Args:
         experiment_path: Path to the experiment directory containing JSON files
         output_path: Path where to save the generated report (default: experiment_path/report.py)

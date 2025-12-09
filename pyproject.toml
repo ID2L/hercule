@@ -34,6 +34,7 @@ pdoc = "*"
 tomli = "*"
 pytest = "*"
 pytest-cov = "*"
+ipykernel = "^7.1.0"
 
 [tool.poetry.scripts]
 hercule = "hercule.cli:cli"
