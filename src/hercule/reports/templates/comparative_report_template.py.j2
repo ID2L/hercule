@@ -1,0 +1,303 @@
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.14.5
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+# -*- coding: utf-8 -*-
+"""
+Comparative Experiment Report
+Generated automatically from multiple experiment data
+Root Path: {{ root_path }}
+Number of experiments: {{ experiments | length }}
+"""
+
+# %% [markdown]
+# # Comparative Experiment Report
+#
+# **Root Path:** `{{ root_path }}`
+#
+# This report compares {{ experiments | length }} experiment(s) to identify the best performing model configuration.
+
+# %%
+# Imports
+import json
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from collections import defaultdict
+
+# %% [markdown]
+# ## Experiment Overview
+
+# %%
+# Load all experiment data
+experiments_data = []
+{% for exp in experiments %}
+experiment_{{ loop.index0 }}_path = Path("{{ exp.path }}")
+experiment_{{ loop.index0 }}_name = "{{ exp.name }}"
+experiment_{{ loop.index0 }}_model = {{ exp.model_data | topython(indent=2) }}
+experiment_{{ loop.index0 }}_environment = {{ exp.environment_data | topython(indent=2) }}
+experiment_{{ loop.index0 }}_learning_rewards = {{ exp.learning_rewards | tojson }}
+experiment_{{ loop.index0 }}_learning_steps = {{ exp.learning_steps | tojson }}
+experiment_{{ loop.index0 }}_testing_rewards = {{ exp.testing_rewards | tojson }}
+experiment_{{ loop.index0 }}_testing_steps = {{ exp.testing_steps | tojson }}
+experiment_{{ loop.index0 }}_data = {
+    "path": experiment_{{ loop.index0 }}_path,
+    "name": experiment_{{ loop.index0 }}_name,
+    "model_config": experiment_{{ loop.index0 }}_model,
+    "environment_config": experiment_{{ loop.index0 }}_environment,
+    "learning_rewards": experiment_{{ loop.index0 }}_learning_rewards,
+    "learning_steps": experiment_{{ loop.index0 }}_learning_steps,
+    "testing_rewards": experiment_{{ loop.index0 }}_testing_rewards,
+    "testing_steps": experiment_{{ loop.index0 }}_testing_steps,
+}
+experiments_data.append(experiment_{{ loop.index0 }}_data)
+{% endfor %}
+
+# %% [markdown]
+# ### Experiments Summary
+#
+# The following experiments are being compared:
+
+# %%
+# Display experiments summary
+print("## Experiments Summary")
+print(f"\nTotal experiments: {len(experiments_data)}\n")
+for i, exp in enumerate(experiments_data, 1):
+    # Extract model name from path (usually parent directory name)
+    path_parts = exp['name'].split('/')
+    model_name = path_parts[-2] if len(path_parts) >= 2 else 'Unknown'
+    env_id = exp['environment_config'].get('id', 'Unknown') if isinstance(exp['environment_config'], dict) else 'Unknown'
+    print(f"**Experiment {i}:** {exp['name']}")
+    print(f"  - Model: {model_name}")
+    print(f"  - Environment: {env_id}")
+    print(f"  - Learning episodes: {len(exp['learning_rewards'])}")
+    print(f"  - Testing episodes: {len(exp['testing_rewards'])}")
+    print()
+
+# %% [markdown]
+# ## Comparative Learning Progress
+#
+# This section compares the learning progress across all experiments, showing how each model configuration performs during training.
+
+# %%
+# Plot learning rewards comparison with moving average
+colors = plt.cm.tab10(np.linspace(0, 1, len(experiments_data)))
+
+fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+# Plot 1: Learning rewards over time with moving average
+ax1 = axes[0]
+for i, exp in enumerate(experiments_data):
+    rewards = exp['learning_rewards']
+    if rewards:
+        # Plot raw rewards with low opacity
+        ax1.plot(rewards, alpha=0.3, color=colors[i], linewidth=0.5)
+        
+        # Calculate and plot moving average
+        window_size = min(50, max(1, len(rewards) // 10))
+        moving_avg = pd.Series(rewards).rolling(window=window_size).mean()
+        ax1.plot(moving_avg, label=f"Exp {i+1}: {exp['name']}", color=colors[i], linewidth=2.5)
+
+ax1.set_title('Learning Progress - Rewards Comparison', fontsize=14, fontweight='bold')
+ax1.set_xlabel('Episode')
+ax1.set_ylabel('Reward')
+ax1.legend(loc='best', fontsize=9)
+ax1.grid(True, alpha=0.3)
+
+# Plot 2: Success rate over time with moving average
+ax2 = axes[1]
+for i, exp in enumerate(experiments_data):
+    rewards = exp['learning_rewards']
+    if rewards:
+        # Calculate success (reward > 0) as boolean, then as float for percentage
+        success = (np.array(rewards) > 0).astype(float) * 100
+        # Plot raw success rate with low opacity
+        ax2.plot(success, alpha=0.3, color=colors[i], linewidth=0.5)
+        
+        # Calculate and plot moving average of success rate
+        window_size = min(50, max(1, len(success) // 10))
+        moving_avg_success = pd.Series(success).rolling(window=window_size).mean()
+        ax2.plot(moving_avg_success, label=f"Exp {i+1}: {exp['name']}", color=colors[i], linewidth=2.5)
+
+ax2.set_title('Learning Progress - Success Rate Comparison', fontsize=14, fontweight='bold')
+ax2.set_xlabel('Episode')
+ax2.set_ylabel('Success Rate (%)')
+ax2.set_ylim(-5, 105)
+ax2.legend(loc='best', fontsize=9)
+ax2.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ## Final Performance Comparison
+#
+# This section compares the final performance of each model on the test dataset.
+
+# %%
+# Plot 2: Testing performance comparison
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+# Boxplot of testing rewards
+ax1 = axes[0]
+test_rewards_data = [exp['testing_rewards'] for exp in experiments_data if exp['testing_rewards']]
+test_labels = [f"Exp {i+1}" for i, exp in enumerate(experiments_data) if exp['testing_rewards']]
+if test_rewards_data:
+    bp1 = ax1.boxplot(test_rewards_data, labels=test_labels, patch_artist=True)
+    for patch, color in zip(bp1['boxes'], colors[:len(bp1['boxes'])]):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    # Create legend for boxplots
+    legend_elements = [Patch(facecolor=colors[i], alpha=0.7, label=f"Exp {i+1}: {exp['name']}") 
+                      for i, exp in enumerate(experiments_data) if exp['testing_rewards']]
+    ax1.legend(handles=legend_elements, loc='best', fontsize=8)
+ax1.set_title('Testing Rewards Comparison', fontsize=14, fontweight='bold')
+ax1.set_ylabel('Reward')
+ax1.grid(True, alpha=0.3, axis='y')
+
+# Boxplot of testing steps
+ax2 = axes[1]
+test_steps_data = [exp['testing_steps'] for exp in experiments_data if exp['testing_steps']]
+if test_steps_data:
+    bp2 = ax2.boxplot(test_steps_data, labels=test_labels, patch_artist=True)
+    for patch, color in zip(bp2['boxes'], colors[:len(bp2['boxes'])]):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    # Create legend for boxplots
+    legend_elements = [Patch(facecolor=colors[i], alpha=0.7, label=f"Exp {i+1}: {exp['name']}") 
+                      for i, exp in enumerate(experiments_data) if exp['testing_steps']]
+    ax2.legend(handles=legend_elements, loc='best', fontsize=8)
+ax2.set_title('Testing Steps Comparison', fontsize=14, fontweight='bold')
+ax2.set_ylabel('Steps')
+ax2.grid(True, alpha=0.3, axis='y')
+
+# Bar chart of mean testing rewards
+ax3 = axes[2]
+mean_rewards = [np.mean(exp['testing_rewards']) if exp['testing_rewards'] else 0 for exp in experiments_data]
+std_rewards = [np.std(exp['testing_rewards']) if exp['testing_rewards'] else 0 for exp in experiments_data]
+exp_names_short = [f"Exp {i+1}" for i in range(len(experiments_data))]
+bars = ax3.bar(exp_names_short, mean_rewards, yerr=std_rewards, color=colors[:len(experiments_data)], alpha=0.7, capsize=5, label='Mean Reward')
+ax3.set_title('Mean Testing Rewards Comparison', fontsize=14, fontweight='bold')
+ax3.set_ylabel('Mean Reward ± Std')
+ax3.grid(True, alpha=0.3, axis='y')
+ax3.legend(loc='best')
+# Add value labels on bars
+for bar, mean_val in zip(bars, mean_rewards):
+    height = bar.get_height()
+    ax3.text(bar.get_x() + bar.get_width()/2., height,
+             f'{mean_val:.3f}', ha='center', va='bottom', fontsize=9)
+
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ## Performance Metrics Analysis
+
+# %%
+# Calculate comprehensive metrics
+metrics = []
+for i, exp in enumerate(experiments_data, 1):
+    learning_rewards = exp['learning_rewards']
+    testing_rewards = exp['testing_rewards']
+    
+    if learning_rewards and testing_rewards:
+        metrics.append({
+            'experiment': f"Exp {i}: {exp['name']}",
+            'mean_learning_reward': np.mean(learning_rewards),
+            'std_learning_reward': np.std(learning_rewards),
+            'mean_testing_reward': np.mean(testing_rewards),
+            'std_testing_reward': np.std(testing_rewards),
+            'max_testing_reward': np.max(testing_rewards),
+            'min_testing_reward': np.min(testing_rewards),
+            'learning_success_rate': (np.array(learning_rewards) > 0).mean() * 100,
+            'testing_success_rate': (np.array(testing_rewards) > 0).mean() * 100,
+            'mean_learning_steps': np.mean(exp['learning_steps']) if exp['learning_steps'] else 0,
+            'mean_testing_steps': np.mean(exp['testing_steps']) if exp['testing_steps'] else 0,
+        })
+
+# Create DataFrame for easy comparison
+if metrics:
+    df_metrics = pd.DataFrame(metrics)
+    
+    print("## Performance Metrics Summary")
+    print("\n### Key Metrics:")
+    print(df_metrics.to_string(index=False))
+    
+    # Find winner based on mean testing reward
+    winner_idx = df_metrics['mean_testing_reward'].idxmax()
+    winner = df_metrics.loc[winner_idx]
+    
+    print(f"\n### 🏆 WINNER: {winner['experiment']}")
+    print(f"   Mean Testing Reward: {winner['mean_testing_reward']:.4f} ± {winner['std_testing_reward']:.4f}")
+    print(f"   Testing Success Rate: {winner['testing_success_rate']:.1f}%")
+    print(f"   Max Testing Reward: {winner['max_testing_reward']:.4f}")
+
+# %% [markdown]
+# ## Winner Declaration
+#
+# Based on comprehensive analysis of testing performance, learning speed, and consistency:
+
+# %%
+# Final winner analysis
+if metrics:
+    # Primary criterion: mean testing reward
+    winner_idx = df_metrics['mean_testing_reward'].idxmax()
+    winner_row = df_metrics.loc[winner_idx]
+    winner_exp_idx = int(winner_row['experiment'].split(':')[0].split()[1]) - 1
+    winner_exp = experiments_data[winner_exp_idx]
+    
+    print("## 🏆 WINNER DECLARATION")
+    print("\n" + "="*60)
+    print(f"🏅 BEST PERFORMING MODEL: {winner_row['experiment']}")
+    print("="*60)
+    print(f"\n**Performance Metrics:**")
+    print(f"  • Mean Testing Reward: {winner_row['mean_testing_reward']:.4f} ± {winner_row['std_testing_reward']:.4f}")
+    print(f"  • Max Testing Reward: {winner_row['max_testing_reward']:.4f}")
+    print(f"  • Min Testing Reward: {winner_row['min_testing_reward']:.4f}")
+    print(f"  • Testing Success Rate: {winner_row['testing_success_rate']:.1f}%")
+    print(f"  • Mean Learning Reward: {winner_row['mean_learning_reward']:.4f} ± {winner_row['std_learning_reward']:.4f}")
+    print(f"  • Learning Success Rate: {winner_row['learning_success_rate']:.1f}%")
+    print(f"\n**Model Configuration:**")
+    print(f"  • Path: {winner_exp['path']}")
+    # Extract model name from path
+    path_parts = winner_exp['name'].split('/')
+    model_name = path_parts[-2] if len(path_parts) >= 2 else 'Unknown'
+    print(f"  • Model Name: {model_name}")
+    if isinstance(winner_exp['model_config'], dict):
+        for key, value in winner_exp['model_config'].items():
+            if key not in ['q_table']:  # Skip large arrays
+                print(f"  • {key}: {value}")
+    print(f"\n**Why this model wins:**")
+    
+    # Compare with second best
+    if len(df_metrics) > 1:
+        sorted_metrics = df_metrics.sort_values('mean_testing_reward', ascending=False)
+        second_best = sorted_metrics.iloc[1]
+        advantage = winner_row['mean_testing_reward'] - second_best['mean_testing_reward']
+        advantage_pct = (advantage / abs(second_best['mean_testing_reward']) * 100) if second_best['mean_testing_reward'] != 0 else 0
+        print(f"  • Outperforms second best ({second_best['experiment']}) by {advantage:.4f} ({advantage_pct:+.1f}%)")
+    
+    if winner_row['testing_success_rate'] == 100:
+        print(f"  • Achieves 100% success rate on test data")
+    elif winner_row['testing_success_rate'] > 80:
+        print(f"  • High success rate ({winner_row['testing_success_rate']:.1f}%) indicates reliable performance")
+    
+    if winner_row['std_testing_reward'] < 0.1:
+        print(f"  • Low variance (std={winner_row['std_testing_reward']:.4f}) indicates consistent performance")
+    
+    print()
+
+# %% [markdown]
+# ---
+# *Comparative report generated automatically by Hercule*

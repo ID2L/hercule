@@ -18,6 +18,71 @@ from hercule.supervisor import environment_file_name
 
 logger = logging.getLogger(__name__)
 
+# Maximum depth for recursive search of experiment directories
+MAX_DEPTH = 4
+
+
+def is_valid_experiment_directory(directory: Path) -> bool:
+    """
+    Check if a directory contains all required experiment files.
+
+    Args:
+        directory: Path to the directory to check
+
+    Returns:
+        True if the directory contains environment.json, model.json, and run_info.json
+    """
+    if not directory.is_dir():
+        return False
+
+    required_files = [
+        environment_file_name,
+        model_file_name,
+        run_info_file_name,
+    ]
+
+    return all((directory / filename).exists() for filename in required_files)
+
+
+def find_experiment_directories(root_directory: Path, max_depth: int = MAX_DEPTH, current_depth: int = 0) -> list[Path]:
+    """
+    Recursively find all directories that contain a valid experiment structure.
+
+    Searches up to max_depth levels deep starting from root_directory.
+
+    Args:
+        root_directory: Root directory to search in
+        max_depth: Maximum depth to search (default: MAX_DEPTH)
+        current_depth: Current recursion depth (used internally)
+
+    Returns:
+        List of paths to directories containing valid experiment structures
+    """
+    experiment_dirs: list[Path] = []
+
+    if not root_directory.is_dir():
+        return experiment_dirs
+
+    # Check if current directory is a valid experiment directory
+    if is_valid_experiment_directory(root_directory):
+        experiment_dirs.append(root_directory)
+        return experiment_dirs
+
+    # If we've reached max depth, stop searching
+    if current_depth >= max_depth:
+        return experiment_dirs
+
+    # Recursively search subdirectories
+    try:
+        for item in root_directory.iterdir():
+            if item.is_dir():
+                subdir_experiments = find_experiment_directories(item, max_depth, current_depth + 1)
+                experiment_dirs.extend(subdir_experiments)
+    except PermissionError:
+        logger.warning(f"Permission denied accessing {root_directory}")
+
+    return experiment_dirs
+
 
 def _format_python_value(value: Any, indent: int = 0, current_indent: int = 0) -> str:
     """
@@ -51,7 +116,7 @@ def _format_python_value(value: Any, indent: int = 0, current_indent: int = 0) -
         next_indent = current_indent + 1
         next_indent_str = " " * (next_indent * indent)
         for k, v in value.items():
-            key_str = repr(k) if isinstance(k, str) else repr(k)
+            key_str = repr(k)
             val_str = _format_python_value(v, indent, next_indent)
             items.append(f"{next_indent_str}{key_str}: {val_str}")
         return "{\n" + ",\n".join(items) + f"\n{indent_str}}}"
@@ -149,9 +214,9 @@ class ExperimentData:
         return [metric.steps_number for metric in self.testing_metrics]
 
 
-def generate_report(experiment_path: Path, output_path: Path | None = None) -> Path:
+def generate_individual_report(experiment_path: Path, output_path: Path | None = None) -> Path:
     """
-    Generate a Jupyter notebook report for an experiment.
+    Generate an individual Jupyter notebook report for a single experiment.
 
     The generated report is a Python file (.py) in Jupytext format with cell markers (# %%).
     It can be opened directly as a Jupyter notebook using Jupytext or any IDE that supports it.
@@ -199,8 +264,164 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(report_content)
 
-    logger.info(f"Report generated: {output_path}")
+    logger.info(f"Individual report generated: {output_path}")
     return output_path
+
+
+def generate_report(experiment_path: Path, output_path: Path | None = None) -> Path:
+    """
+    Generate a Jupyter notebook report for an experiment or multiple experiments.
+
+    This function automatically detects the type of report to generate:
+    - If the given directory contains a valid experiment structure (environment.json,
+      model.json, run_info.json), generates an individual report.
+    - If the given directory contains subdirectories with valid experiment structures
+      (searched up to MAX_DEPTH levels deep), generates a comparative report.
+
+    Args:
+        experiment_path: Path to the experiment directory or parent directory
+        output_path: Path where to save the generated report
+                    (default: experiment_path/report.py for individual,
+                     experiment_path/comparative_report.py for comparative)
+
+    Returns:
+        Path to the generated report file
+
+    Raises:
+        ValueError: If no valid experiment directories are found
+        FileNotFoundError: If the experiment_path doesn't exist
+    """
+    if not experiment_path.exists():
+        raise FileNotFoundError(f"Directory not found: {experiment_path}")
+
+    if not experiment_path.is_dir():
+        raise ValueError(f"Path is not a directory: {experiment_path}")
+
+    # Check if the root directory itself is a valid experiment directory
+    if is_valid_experiment_directory(experiment_path):
+        logger.info("Root directory is a valid experiment directory, generating individual report")
+        return generate_individual_report(experiment_path, output_path)
+
+    # Search for experiment directories recursively
+    logger.info(f"Searching for experiment directories in {experiment_path} (max depth: {MAX_DEPTH})")
+    experiment_dirs = find_experiment_directories(experiment_path, max_depth=MAX_DEPTH)
+
+    if not experiment_dirs:
+        logger.warning(
+            f"No valid experiment directories found in {experiment_path} (searched up to {MAX_DEPTH} levels deep)"
+        )
+        raise ValueError(
+            f"No valid experiment directories found in {experiment_path}. "
+            f"A valid experiment directory must contain: {environment_file_name}, "
+            f"{model_file_name}, and {run_info_file_name}"
+        )
+
+    logger.info(f"Found {len(experiment_dirs)} experiment directory(ies), generating comparative reports")
+
+    # Group experiments by environment + environment parametrization
+    # Structure: root/env/env_params/model/model_params/
+    # We group by env/env_params (2 levels up from experiment directory)
+    experiment_groups: dict[Path, list[Path]] = {}
+    for exp_dir in experiment_dirs:
+        # Go up 2 levels to get to the environment parametrization level
+        # exp_dir is at model_params level, so:
+        # parent is model, parent.parent is env_params
+        if len(exp_dir.parts) >= 2:
+            env_params_dir = exp_dir.parent.parent
+            if env_params_dir not in experiment_groups:
+                experiment_groups[env_params_dir] = []
+            experiment_groups[env_params_dir].append(exp_dir)
+        else:
+            logger.warning(f"Cannot determine environment parametrization for {exp_dir}, skipping")
+
+    if not experiment_groups:
+        raise ValueError("Could not group experiments by environment parametrization")
+
+    logger.info(f"Found {len(experiment_groups)} environment parametrization group(s)")
+
+    # Generate a comparative report for each group
+    generated_reports: list[Path] = []
+    for env_params_dir, group_experiment_dirs in experiment_groups.items():
+        if len(group_experiment_dirs) < 2:
+            logger.info(
+                f"Skipping {env_params_dir}: only {len(group_experiment_dirs)} experiment(s), "
+                "need at least 2 for comparison"
+            )
+            continue
+
+        # Generate report at the environment parametrization level
+        report_path = env_params_dir / "comparative_report.py"
+
+        logger.info(f"Generating comparative report for {len(group_experiment_dirs)} experiments in {env_params_dir}")
+
+        # Load data from all experiment directories in this group
+        experiments = []
+        for exp_dir in group_experiment_dirs:
+            try:
+                exp_data = ExperimentData(exp_dir)
+                if exp_data.load_data():
+                    # Generate a readable name from the directory path relative to env_params_dir
+                    relative_path = exp_dir.relative_to(env_params_dir)
+                    exp_name = str(relative_path).replace("\\", "/")
+
+                    experiments.append(
+                        {
+                            "path": str(exp_dir),
+                            "name": exp_name,
+                            "environment_data": exp_data.environment_data,
+                            "model_data": exp_data.model_data,
+                            "run_info_data": exp_data.run_info_data,
+                            "learning_rewards": exp_data.get_learning_rewards(),
+                            "learning_steps": exp_data.get_learning_steps(),
+                            "testing_rewards": exp_data.get_testing_rewards(),
+                            "testing_steps": exp_data.get_testing_steps(),
+                        }
+                    )
+                    logger.debug(f"Loaded experiment data from: {exp_dir}")
+                else:
+                    logger.warning(f"Failed to load data from: {exp_dir}")
+            except Exception as e:
+                logger.error(f"Error loading experiment from {exp_dir}: {e}")
+
+        if len(experiments) < 2:
+            logger.warning(f"Not enough valid experiments for comparison in {env_params_dir}, skipping")
+            continue
+
+        # Create template environment
+        template_dir = Path(__file__).parent / "templates"
+        env = Environment(loader=FileSystemLoader(template_dir))
+        # Add custom filter to format Python values correctly (False/True instead of false/true)
+        env.filters["topython"] = lambda v, indent=2: _format_python_value(v, indent=indent)
+        template = env.get_template("comparative_report_template.py.j2")
+
+        # Prepare template context
+        context = {
+            "root_path": str(env_params_dir),
+            "experiments": experiments,
+        }
+
+        # Generate report
+        report_content = template.render(**context)
+
+        # Write report file
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report_content)
+
+        logger.info(f"Comparative report generated: {report_path}")
+        generated_reports.append(report_path)
+
+    if not generated_reports:
+        raise ValueError(
+            "No comparative reports could be generated. "
+            "Ensure there are at least 2 experiments per environment parametrization group."
+        )
+
+    # If output_path was specified, return the first report, otherwise return list
+    if output_path:
+        return generated_reports[0] if generated_reports else experiment_path / "comparative_report.py"
+
+    # Return the first report as default (backward compatibility)
+    return generated_reports[0] if generated_reports else experiment_path / "comparative_report.py"
 
 
 def create_learning_plots(experiment_data: ExperimentData) -> dict[str, str]:
