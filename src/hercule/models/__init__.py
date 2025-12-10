@@ -5,14 +5,18 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import ClassVar, Final, cast, final
+from typing import ClassVar, Final, Generic, TypeVar, cast, final
 
 import gymnasium as gym
 import numpy as np
 from pydantic import ConfigDict, Field
 
-from hercule.config import BaseConfig, HyperParameter, ParameterValue
+from hercule.config import BaseConfig, HyperParameter, HyperParamsBase, ParameterValue
 from hercule.models.epoch_result import EpochResult
+
+
+# Type variable for hyperparameters
+HyperParamsType = TypeVar("HyperParamsType", bound=HyperParamsBase)
 
 
 logger = logging.getLogger(__name__)
@@ -20,8 +24,16 @@ logger = logging.getLogger(__name__)
 model_file_name: Final = "model.json"
 
 
-class RLModel(BaseConfig, ABC):
-    """Abstract base class for reinforcement learning models."""
+class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
+    """
+    Abstract base class for reinforcement learning models.
+
+    This class is generic over HyperParamsType, allowing type-safe hyperparameters
+    for each model subclass.
+
+    Type Parameters:
+        HyperParamsType: The type of hyperparameters for this model (must inherit from HyperParamsBase)
+    """
 
     # Pydantic configuration to allow arbitrary types (like gym.Env, np.ndarray, etc.)
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -30,9 +42,14 @@ class RLModel(BaseConfig, ABC):
     model_name: ClassVar[str]
     # Class attribute for default hyperparameters (static, immutable) - must be overridden by subclasses
     default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {}
+    # Class attribute for the hyperparameters type class (for type-safe access)
+    hyperparams_class: ClassVar[type[HyperParamsBase] | None] = None
 
     # Environment field (Pydantic field to allow gym.Env type)
     env: gym.Env | None = Field(default=None, description="Gymnasium environment")
+
+    # Instance attribute for typed hyperparameters (set after configure)
+    _typed_hyperparameters: HyperParamsType | None = None
 
     def __init__(self, **kwargs) -> None:
         """
@@ -46,6 +63,7 @@ class RLModel(BaseConfig, ABC):
         if "name" not in kwargs:
             kwargs["name"] = self.model_name
         super().__init__(**kwargs)
+        self._typed_hyperparameters = None
 
     def get_default_hyperparameters(self) -> dict[str, ParameterValue]:
         """
@@ -59,28 +77,67 @@ class RLModel(BaseConfig, ABC):
         """
         return self.__class__.default_hyperparameters.copy()
 
-    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> bool:
+    def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue] | HyperParamsType) -> bool:
         """
         Configure the model for a specific environment.
 
         Args:
             env: Gymnasium environment
-            hyperparameters: Model hyperparameters (will be merged with defaults)
+            hyperparameters: Model hyperparameters (dict or typed HyperParamsBase instance)
+                           Will be merged with defaults.
 
         Note:
             This method merges provided hyperparameters with defaults and stores
             them in self.hyperparameters (list[HyperParameter]) for later retrieval.
+            It also stores typed hyperparameters in self._typed_hyperparameters.
         """
+        # Convert to dict if it's a HyperParamsBase instance
+        if isinstance(hyperparameters, HyperParamsBase):
+            hyperparams_dict = hyperparameters.to_dict()
+            # Store typed instance for type-safe access
+            self._typed_hyperparameters = hyperparameters
+        else:
+            hyperparams_dict = hyperparameters
+            # Create typed instance if hyperparams_class is defined
+            if self.hyperparams_class is not None:
+                # Merge with defaults first
+                defaults = self.get_default_hyperparameters()
+                merged = defaults.copy()
+                merged.update(hyperparams_dict)
+                # Create typed instance (should always succeed if hyperparams_class is defined)
+                self._typed_hyperparameters = self.hyperparams_class(**merged)
+            else:
+                # No hyperparams_class defined, keep None
+                self._typed_hyperparameters = None
+
         # Merge with defaults
         defaults = self.get_default_hyperparameters()
         merged = defaults.copy()
-        merged.update(hyperparameters)
+        merged.update(hyperparams_dict)
 
-        # Store hyperparameters in BaseConfig format
+        # Store hyperparameters in BaseConfig format (for generic access)
         self.hyperparameters = [HyperParameter(key=k, value=v) for k, v in merged.items()]
 
         self.env = env
         return True
+
+    def get_hyperparameters(self) -> HyperParamsType:
+        """
+        Get typed hyperparameters for this model.
+
+        Returns the type-safe hyperparameters instance.
+        This provides autocomplete and type checking in IDEs.
+
+        Returns:
+            Typed hyperparameters instance
+
+        Raises:
+            ValueError: If model is not configured or hyperparams_class is not defined
+        """
+        if self._typed_hyperparameters is None:
+            msg = f"Model {self.model_name} not configured or hyperparams_class not defined. Call configure() first."
+            raise ValueError(msg)
+        return self._typed_hyperparameters
 
     @abstractmethod
     def act(self, observation: np.ndarray | int, training: bool = False) -> int | float | np.ndarray:

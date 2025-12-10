@@ -15,6 +15,19 @@ ParameterValue = str | int | float | bool | None | list[str] | list[int] | list[
 config_file_name: Final = "config.yaml"
 
 
+class HyperParamsBase(BaseModel):
+    """
+    Base class for model hyperparameters.
+
+    All model-specific hyperparameter classes should inherit from this class.
+    This provides a common interface while allowing type-safe hyperparameters.
+    """
+
+    def to_dict(self) -> dict[str, ParameterValue]:
+        """Convert hyperparameters to dictionary format."""
+        return {k: v for k, v in self.model_dump().items() if v is not None}
+
+
 class HyperParameter(BaseModel):
     """Represents a hyperparameter with key-value pair."""
 

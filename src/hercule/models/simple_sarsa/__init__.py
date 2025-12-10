@@ -32,10 +32,10 @@ class SimpleSarsaModel(TDModel):
             next_state: Next state reached
             next_action: Next action taken by the current policy
         """
-        # Get hyperparameters from self.hyperparameters
-        hyperparams = self.get_hyperparameters_dict()
-        learning_rate = float(hyperparams.get("learning_rate", 0.1))
-        discount_factor = float(hyperparams.get("discount_factor", 0.95))
+        # Get hyperparameters - use typed hyperparameters (type-safe)
+        typed_params = self.get_hyperparameters()
+        learning_rate = typed_params.learning_rate
+        discount_factor = typed_params.discount_factor
 
         self._q_table[state][action] += learning_rate * (
             reward + discount_factor * self._q_table[next_state, next_action] - self._q_table[state, action]

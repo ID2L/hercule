@@ -6,9 +6,9 @@ from typing import ClassVar
 
 import gymnasium as gym
 import numpy as np
-from pydantic import PrivateAttr
+from pydantic import Field, PrivateAttr
 
-from hercule.config import ParameterValue
+from hercule.config import HyperParamsBase, ParameterValue
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
 
@@ -16,7 +16,13 @@ from hercule.models.epoch_result import EpochResult
 logger = logging.getLogger(__name__)
 
 
-class DummyModel(RLModel):
+class DummyModelHyperParams(HyperParamsBase):
+    """Type-safe hyperparameters for Dummy model."""
+
+    seed: int = Field(default=42, description="Random seed")
+
+
+class DummyModel(RLModel[DummyModelHyperParams]):
     """
     Dummy model that takes random actions from the environment's action space.
 
@@ -30,6 +36,8 @@ class DummyModel(RLModel):
     default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {
         "seed": 42,
     }
+    # Type-safe hyperparameters class
+    hyperparams_class: ClassVar[type[HyperParamsBase]] = DummyModelHyperParams
 
     # Private attributes (not Pydantic fields, use PrivateAttr to avoid validation)
     _action_space: gym.Space | None = PrivateAttr(default=None)
@@ -57,12 +65,9 @@ class DummyModel(RLModel):
         super().configure(env, hyperparameters)
         self._action_space = env.action_space
 
-        # Get merged hyperparameters from BaseConfig (already stored in self.hyperparameters)
-        merged_hyperparameters = self.get_hyperparameters_dict()
-        defaults = self.get_default_hyperparameters()
-
-        # Set random seed from hyperparameters
-        seed_value = merged_hyperparameters.get("seed", defaults.get("seed", 42))
+        # Get hyperparameters - use typed hyperparameters (type-safe)
+        typed_params = self.get_hyperparameters()
+        seed_value = typed_params.seed
         if isinstance(seed_value, int):
             self._rng = np.random.default_rng(seed_value)
 
