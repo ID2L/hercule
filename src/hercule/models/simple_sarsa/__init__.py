@@ -1,5 +1,7 @@
 """Simple SARSA implementation with Q-table for discrete environments."""
 
+from typing import ClassVar
+
 from hercule.models.td_models import TDModel
 
 
@@ -14,8 +16,8 @@ class SimpleSarsaModel(TDModel):
     for the policy being followed, rather than the optimal policy.
     """
 
-    # Class attribute for model name
-    model_name: str = "simple_sarsa"
+    # Class attribute for model name (static, immutable)
+    model_name: ClassVar[str] = "simple_sarsa"
 
     def update(self, state: int, action: int, reward: float, next_state: int, next_action: int) -> None:
         """
@@ -30,8 +32,13 @@ class SimpleSarsaModel(TDModel):
             next_state: Next state reached
             next_action: Next action taken by the current policy
         """
-        self._q_table[state][action] += self._learning_rate * (
-            reward + self._discount_factor * self._q_table[next_state, next_action] - self._q_table[state, action]
+        # Get hyperparameters from self.hyperparameters
+        hyperparams = self.get_hyperparameters_dict()
+        learning_rate = float(hyperparams.get("learning_rate", 0.1))
+        discount_factor = float(hyperparams.get("discount_factor", 0.95))
+
+        self._q_table[state][action] += learning_rate * (
+            reward + discount_factor * self._q_table[next_state, next_action] - self._q_table[state, action]
         )
 
 

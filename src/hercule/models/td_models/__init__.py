@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, ClassVar, cast
 
 import gymnasium as gym
 import numpy as np
+from pydantic import PrivateAttr
 
-from hercule.config import ParameterValue
+from hercule.config import HyperParameter, ParameterValue
 from hercule.environnements.spaces_checker import check_space_is_discrete
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
@@ -16,6 +17,8 @@ from hercule.models.epoch_result import EpochResult
 
 if TYPE_CHECKING:
     from gymnasium.spaces import Discrete
+else:
+    Discrete = object  # Placeholder for runtime
 
 
 logger = logging.getLogger(__name__)
@@ -40,12 +43,15 @@ class TDModel(RLModel, ABC):
         "seed": 42,
     }
 
+    # Private attributes (not Pydantic fields, use PrivateAttr to avoid validation)
+    _q_table: np.ndarray = PrivateAttr(default_factory=lambda: np.zeros((0, 0), dtype=np.float64))
+    _action_space: Discrete | None = PrivateAttr(default=None)
+    _observation_space: Discrete | None = PrivateAttr(default=None)
+    _seed: np.random.Generator = PrivateAttr(default_factory=lambda: np.random.default_rng(42))
+
     def __init__(self) -> None:
         """Initialize the TD model."""
         super().__init__()
-        self._q_table: np.ndarray = np.zeros((0, 0), dtype=np.float64)
-        self._action_space: Discrete
-        self._observation_space: Discrete
         # Hyperparameters will be initialized in configure() from self.hyperparameters
 
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> bool:
@@ -74,46 +80,58 @@ class TDModel(RLModel, ABC):
 
         self._q_table = np.zeros((self._observation_space.n, self._action_space.n), dtype=np.float64)
 
-        # Get merged hyperparameters from BaseConfig (already stored in self.hyperparameters)
+        # Validate and update hyperparameters in self.hyperparameters
         merged_hyperparameters = self.get_hyperparameters_dict()
         defaults = self.get_default_hyperparameters()
 
-        # Set hyperparameters with validation
+        # Validate hyperparameters and update in self.hyperparameters
         lr_default = defaults.get("learning_rate", 0.1)
         lr = merged_hyperparameters.get("learning_rate", lr_default)
-        self._learning_rate = self._validate_hyperparameter(
+        validated_lr = self._validate_hyperparameter(
             float(lr) if isinstance(lr, int | float) else lr_default, "learning_rate", 0.0, 1.0
         )
 
         df_default = defaults.get("discount_factor", 0.95)
         df = merged_hyperparameters.get("discount_factor", df_default)
-        self._discount_factor = self._validate_hyperparameter(
+        validated_df = self._validate_hyperparameter(
             float(df) if isinstance(df, int | float) else df_default, "discount_factor", 0.0, 1.0
         )
 
         eps_default = defaults.get("epsilon", 1.0)
         eps = merged_hyperparameters.get("epsilon", eps_default)
-        self._epsilon = self._validate_hyperparameter(
+        validated_eps = self._validate_hyperparameter(
             float(eps) if isinstance(eps, int | float) else eps_default, "epsilon", 0.0, 1.0
         )
 
         eps_decay_default = defaults.get("epsilon_decay", 0.0)
         eps_decay = merged_hyperparameters.get("epsilon_decay", eps_decay_default)
-        self._epsilon_decay = self._validate_hyperparameter(
+        validated_eps_decay = self._validate_hyperparameter(
             float(eps_decay) if isinstance(eps_decay, int | float) else eps_decay_default, "epsilon_decay", 0.0, 1.0
         )
 
         eps_min_default = defaults.get("epsilon_min", 0.0)
         eps_min = merged_hyperparameters.get("epsilon_min", eps_min_default)
-        self._epsilon_min = self._validate_hyperparameter(
+        validated_eps_min = self._validate_hyperparameter(
             float(eps_min) if isinstance(eps_min, int | float) else eps_min_default, "epsilon_min", 0.0, 1.0
         )
+
+        # Update hyperparameters list with validated values
+        hyperparams_dict = self.get_hyperparameters_dict()
+        hyperparams_dict["learning_rate"] = validated_lr
+        hyperparams_dict["discount_factor"] = validated_df
+        hyperparams_dict["epsilon"] = validated_eps
+        hyperparams_dict["epsilon_decay"] = validated_eps_decay
+        hyperparams_dict["epsilon_min"] = validated_eps_min
 
         # Set random seed from hyperparameters
         seed_default = defaults.get("seed", 42)
         seed_value = merged_hyperparameters.get("seed", seed_default)
         if isinstance(seed_value, int):
-            self.seed = np.random.default_rng(seed_value)
+            self._seed = np.random.default_rng(seed_value)
+            hyperparams_dict["seed"] = seed_value
+
+        # Update self.hyperparameters with validated values
+        self.hyperparameters = [HyperParameter(key=k, value=v) for k, v in hyperparams_dict.items()]
 
         logger.info(
             f"'{self.model_name}' configured for environment with "
@@ -149,7 +167,16 @@ class TDModel(RLModel, ABC):
 
             if train_mode:
                 self.update(observation, action, reward, next_observation, next_action)
-                self._epsilon = max(self._epsilon_min, self._epsilon * (1 - self._epsilon_decay))
+                # Update epsilon decay in hyperparameters
+                hyperparams = self.get_hyperparameters_dict()
+                current_epsilon = float(hyperparams.get("epsilon", 1.0))
+                epsilon_decay = float(hyperparams.get("epsilon_decay", 0.0))
+                epsilon_min = float(hyperparams.get("epsilon_min", 0.0))
+                new_epsilon = max(epsilon_min, current_epsilon * (1 - epsilon_decay))
+                # Update epsilon in hyperparameters
+                updated_hyperparams = self.get_hyperparameters_dict()
+                updated_hyperparams["epsilon"] = new_epsilon
+                self.hyperparameters = [HyperParameter(key=k, value=v) for k, v in updated_hyperparams.items()]
 
             observation = next_observation
             action = next_action
@@ -274,8 +301,11 @@ class TDModel(RLModel, ABC):
         Returns:
             Selected action index
         """
+        # Get epsilon from hyperparameters
+        hyperparams = self.get_hyperparameters_dict()
+        epsilon = float(hyperparams.get("epsilon", 1.0))
         rand = random.random()
-        if rand < self._epsilon:
+        if rand < epsilon:
             # Explore: choose random action
             if self._action_space.n is None:
                 raise ValueError("Number of actions not set")
@@ -349,7 +379,7 @@ class TDModel(RLModel, ABC):
             KeyError: If required keys are missing from model_data
         """
         # Convert Q-table back from JSON format
-        self._q_table = np.array(model_data["q_table"])
+        self.q_table = np.array(model_data["q_table"])
 
         logger.info(f"Loaded {self.model_name} model from dictionary")
 

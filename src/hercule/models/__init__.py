@@ -9,6 +9,7 @@ from typing import ClassVar, Final, cast, final
 
 import gymnasium as gym
 import numpy as np
+from pydantic import ConfigDict, Field
 
 from hercule.config import BaseConfig, HyperParameter, ParameterValue
 from hercule.models.epoch_result import EpochResult
@@ -22,10 +23,16 @@ model_file_name: Final = "model.json"
 class RLModel(BaseConfig, ABC):
     """Abstract base class for reinforcement learning models."""
 
+    # Pydantic configuration to allow arbitrary types (like gym.Env, np.ndarray, etc.)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     # Class attribute for model name (static, immutable)
     model_name: ClassVar[str]
     # Class attribute for default hyperparameters (static, immutable) - must be overridden by subclasses
     default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {}
+
+    # Environment field (Pydantic field to allow gym.Env type)
+    env: gym.Env | None = Field(default=None, description="Gymnasium environment")
 
     def __init__(self, **kwargs) -> None:
         """
@@ -39,7 +46,6 @@ class RLModel(BaseConfig, ABC):
         if "name" not in kwargs:
             kwargs["name"] = self.model_name
         super().__init__(**kwargs)
-        self.env: gym.Env | None = None
 
     def get_default_hyperparameters(self) -> dict[str, ParameterValue]:
         """
@@ -250,7 +256,11 @@ def get_available_models() -> dict[str, type[RLModel]]:
                     # Check if it's a class that inherits from RLModel
                     if isinstance(attr, type) and issubclass(attr, RLModel) and attr != RLModel:
                         # Use the model_name class attribute or fallback to class name
-                        model_name = getattr(attr, "model_name", attr.__name__.lower())
+                        # Check in class __dict__ first to avoid getting abstract parent's model_name
+                        if "model_name" in attr.__dict__:
+                            model_name = attr.__dict__["model_name"]
+                        else:
+                            model_name = getattr(attr, "model_name", attr.__name__.lower())
                         models_dict[model_name] = attr
 
                         logger.debug(f"Discovered model: {model_name} -> {attr.__name__}")

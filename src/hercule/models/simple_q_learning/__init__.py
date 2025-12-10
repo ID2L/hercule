@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from hercule.models.td_models import TDModel
 
 
@@ -12,7 +14,8 @@ class SimpleQLearningModel(TDModel):
     for the optimal policy, regardless of the policy being followed.
     """
 
-    model_name: str = "simple_q_learning"
+    # Class attribute for model name (static, immutable)
+    model_name: ClassVar[str] = "simple_q_learning"
 
     def update(self, state: int, action: int, reward: float, next_state: int, next_action: int) -> None:
         """
@@ -31,6 +34,11 @@ class SimpleQLearningModel(TDModel):
         # Find the best action for the next state (optimal policy)
         best_next_action = self.exploit(next_state)
 
-        self._q_table[state][action] += self._learning_rate * (
-            reward + self._discount_factor * self._q_table[next_state, best_next_action] - self._q_table[state, action]
+        # Get hyperparameters from self.hyperparameters
+        hyperparams = self.get_hyperparameters_dict()
+        learning_rate = float(hyperparams.get("learning_rate", 0.1))
+        discount_factor = float(hyperparams.get("discount_factor", 0.95))
+
+        self._q_table[state][action] += learning_rate * (
+            reward + discount_factor * self._q_table[next_state, best_next_action] - self._q_table[state, action]
         )

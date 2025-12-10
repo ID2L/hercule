@@ -6,6 +6,7 @@ from typing import ClassVar
 
 import gymnasium as gym
 import numpy as np
+from pydantic import PrivateAttr
 
 from hercule.config import ParameterValue
 from hercule.models import RLModel
@@ -30,6 +31,11 @@ class DummyModel(RLModel):
         "seed": 42,
     }
 
+    # Private attributes (not Pydantic fields, use PrivateAttr to avoid validation)
+    _action_space: gym.Space | None = PrivateAttr(default=None)
+    _rng: np.random.Generator | None = PrivateAttr(default=None)
+    _is_trained: bool = PrivateAttr(default=True)
+
     def __init__(self) -> None:
         """
         Initialize the dummy model.
@@ -38,9 +44,6 @@ class DummyModel(RLModel):
             name: Model name identifier (if None, uses class model_name)
         """
         super().__init__()
-        self._action_space: gym.Space | None = None
-        self._rng: np.random.Generator | None = None  # Will be initialized in configure() from hyperparameters
-        self.is_trained = True
 
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
         """
