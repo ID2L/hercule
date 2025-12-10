@@ -51,6 +51,7 @@ experiment_{{ loop.index0 }}_learning_rewards = {{ exp.learning_rewards | tojson
 experiment_{{ loop.index0 }}_learning_steps = {{ exp.learning_steps | tojson }}
 experiment_{{ loop.index0 }}_testing_rewards = {{ exp.testing_rewards | tojson }}
 experiment_{{ loop.index0 }}_testing_steps = {{ exp.testing_steps | tojson }}
+experiment_{{ loop.index0 }}_hyperparameters = {{ exp.model_hyperparameters | topython(indent=2) }}
 experiment_{{ loop.index0 }}_data = {
     "path": experiment_{{ loop.index0 }}_path,
     "name": experiment_{{ loop.index0 }}_name,
@@ -60,6 +61,7 @@ experiment_{{ loop.index0 }}_data = {
     "learning_steps": experiment_{{ loop.index0 }}_learning_steps,
     "testing_rewards": experiment_{{ loop.index0 }}_testing_rewards,
     "testing_steps": experiment_{{ loop.index0 }}_testing_steps,
+    "model_hyperparameters": experiment_{{ loop.index0 }}_hyperparameters,
 }
 experiments_data.append(experiment_{{ loop.index0 }}_data)
 {% endfor %}
@@ -84,6 +86,51 @@ for i, exp in enumerate(experiments_data, 1):
     print(f"  - Learning episodes: {len(exp['learning_rewards'])}")
     print(f"  - Testing episodes: {len(exp['testing_rewards'])}")
     print()
+
+# %% [markdown]
+# ## Hyperparameters Comparison
+#
+# This table shows the hyperparameters used for each experiment configuration.
+
+# %%
+# Extract and display hyperparameters
+if experiments_data:
+    # Collect all unique hyperparameter keys
+    all_hyperparam_keys = set()
+    for exp in experiments_data:
+        hyperparams = exp.get('model_hyperparameters', {})
+        if hyperparams:
+            all_hyperparam_keys.update(hyperparams.keys())
+    
+    if all_hyperparam_keys:
+        # Create hyperparameters DataFrame
+        hyperparams_list = []
+        for i, exp in enumerate(experiments_data, 1):
+            hyperparams = exp.get('model_hyperparameters', {})
+            row = {'Experiment': f"Exp {i}: {exp['name']}"}
+            for key in sorted(all_hyperparam_keys):
+                value = hyperparams.get(key, '-')
+                # Format value for display
+                if isinstance(value, float):
+                    # Show 4 decimal places if not integer, otherwise show as int
+                    row[key] = f"{value:.4f}" if abs(value - int(value)) > 1e-10 else f"{int(value)}"
+                elif isinstance(value, bool):
+                    row[key] = "True" if value else "False"
+                elif value is None:
+                    row[key] = "None"
+                else:
+                    row[key] = str(value)
+            hyperparams_list.append(row)
+        
+        hyperparams_df = pd.DataFrame(hyperparams_list)
+        print("### Hyperparameters Table")
+        print()
+        # Use to_string with max_colwidth to handle long names
+        print(hyperparams_df.to_string(index=False, max_colwidth=50))
+        print()
+    else:
+        print("### Hyperparameters Table")
+        print("\nNo hyperparameters found in experiment data.\n")
 
 # %% [markdown]
 # ## Comparative Learning Progress

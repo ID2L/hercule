@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -10,6 +11,7 @@ import numpy as np
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, Template
 
+from hercule.environnements import load_environment
 from hercule.models import create_model, model_file_name
 from hercule.models.epoch_result import EpochResult
 from hercule.run import Runner, run_info_file_name
@@ -176,13 +178,93 @@ class ExperimentData:
 
             # Load run info data using Runner.load() method
             try:
+                # Load raw JSON to get hyperparameters
+                run_info_file = self.experiment_path / run_info_file_name
+                hyperparams_from_json: dict[str, Any] = {}
+                if run_info_file.exists():
+                    with open(run_info_file, encoding="utf-8") as f:
+                        run_info_raw = json.load(f)
+                        # Get hyperparameters directly from JSON
+                        hyperparams_from_json = run_info_raw.get("model_hyperparameters", {})
+
                 self.runner = Runner.load(self.experiment_path)
                 if self.runner:
+                    # Get hyperparameters from the configured model using get_hyperparameters_dict()
+                    hyperparams: dict[str, Any] = {}
+                    if len(self.experiment_path.parts) >= 1:
+                        model_name = self.experiment_path.parent.name
+                        try:
+                            # Create model instance
+                            model = create_model(model_name)
+                            # Load model data from JSON if available
+                            if model_file.exists():
+                                model.load(self.experiment_path)
+
+                            # Load environment if available to configure the model
+                            env = None
+                            if self.environment_data and "id" in self.environment_data:
+                                try:
+                                    env = load_environment(self.experiment_path)
+                                except Exception as e:
+                                    logger.debug(f"Could not load environment: {e}")
+
+                            # Configure model with hyperparameters from JSON (or use defaults)
+                            if (
+                                hyperparams_from_json
+                                and isinstance(hyperparams_from_json, dict)
+                                and len(hyperparams_from_json) > 0
+                            ):
+                                # Use hyperparameters from JSON
+                                if env:
+                                    model.configure(env, hyperparams_from_json)
+                                else:
+                                    # If no environment, we can't fully configure, but we can still get defaults
+                                    # Merge provided hyperparameters with defaults
+                                    defaults = model.get_default_hyperparameters()
+                                    merged = defaults.copy()
+                                    merged.update(hyperparams_from_json)
+                                    # Store in model's hyperparameters list
+                                    from hercule.config import HyperParameter
+
+                                    model.hyperparameters = [HyperParameter(key=k, value=v) for k, v in merged.items()]
+                            else:
+                                # No hyperparameters in JSON, use defaults
+                                if env:
+                                    model.configure(env, {})
+                                else:
+                                    # Store defaults in model's hyperparameters
+                                    defaults = model.get_default_hyperparameters()
+                                    from hercule.config import HyperParameter
+
+                                    model.hyperparameters = [
+                                        HyperParameter(key=k, value=v) for k, v in defaults.items()
+                                    ]
+
+                            # Get hyperparameters from the configured model
+                            hyperparams = model.get_hyperparameters_dict()
+                            logger.debug(f"Retrieved hyperparameters from model {model_name}: {hyperparams}")
+                        except Exception as e:
+                            logger.warning(f"Could not get hyperparameters from model {model_name}: {e}")
+                            # Fallback to JSON or defaults
+                            if (
+                                hyperparams_from_json
+                                and isinstance(hyperparams_from_json, dict)
+                                and len(hyperparams_from_json) > 0
+                            ):
+                                hyperparams = hyperparams_from_json.copy()
+                            else:
+                                try:
+                                    temp_model = create_model(model_name)
+                                    hyperparams = temp_model.get_default_hyperparameters()
+                                except Exception:
+                                    hyperparams = {}
+
                     self.run_info_data = {
                         "learning_ongoing_epoch": self.runner.learning_ongoing_epoch,
                         "testing_ongoing_epoch": self.runner.testing_ongoing_epoch,
                         "learning_metrics": [metric.model_dump() for metric in self.runner.learning_metrics],
                         "testing_metrics": [metric.model_dump() for metric in self.runner.testing_metrics],
+                        "model_hyperparameters": hyperparams,
                     }
                     self.learning_metrics = self.runner.learning_metrics
                     self.testing_metrics = self.runner.testing_metrics
@@ -375,6 +457,9 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
                             "learning_steps": exp_data.get_learning_steps(),
                             "testing_rewards": exp_data.get_testing_rewards(),
                             "testing_steps": exp_data.get_testing_steps(),
+                            "model_hyperparameters": exp_data.run_info_data.get("model_hyperparameters", {})
+                            if exp_data.run_info_data
+                            else {},
                         }
                     )
                     logger.debug(f"Loaded experiment data from: {exp_dir}")
