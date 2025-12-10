@@ -44,17 +44,21 @@ class TDModel(RLModel[TDModelHyperParams], ABC):
     updates. The main difference between implementations is in the update method.
     """
 
-    # Default hyperparameters for TD models (static, immutable) - SARSA, Q-Learning, etc.
-    default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {
-        "learning_rate": 0.1,
-        "discount_factor": 0.95,
-        "epsilon": 1.0,
-        "epsilon_decay": 0.0,
-        "epsilon_min": 0.0,
-        "seed": 42,
-    }
     # Type-safe hyperparameters class
     hyperparams_class: ClassVar[type[HyperParamsBase]] = TDModelHyperParams
+
+    @classmethod
+    def default_hyperparameters_typed(cls) -> TDModelHyperParams:
+        """
+        Get default hyperparameters as a typed instance.
+
+        Returns a type-safe instance of TDModelHyperParams with default values.
+        This provides autocomplete and type checking in IDEs.
+
+        Returns:
+            Typed hyperparameters instance with default values
+        """
+        return TDModelHyperParams()
 
     # Private attributes (not Pydantic fields, use PrivateAttr to avoid validation)
     _q_table: np.ndarray = PrivateAttr(default_factory=lambda: np.zeros((0, 0), dtype=np.float64))

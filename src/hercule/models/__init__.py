@@ -40,8 +40,6 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
 
     # Class attribute for model name (static, immutable)
     model_name: ClassVar[str]
-    # Class attribute for default hyperparameters (static, immutable) - must be overridden by subclasses
-    default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {}
     # Class attribute for the hyperparameters type class (for type-safe access)
     hyperparams_class: ClassVar[type[HyperParamsBase] | None] = None
 
@@ -67,15 +65,33 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
 
     def get_default_hyperparameters(self) -> dict[str, ParameterValue]:
         """
-        Get default hyperparameters for this model.
+        Get default hyperparameters for this model as a dictionary.
 
-        Returns the class attribute default_hyperparameters, which should be
-        defined by each model subclass.
+        Returns default hyperparameters converted from the typed instance.
 
         Returns:
             Dictionary of default hyperparameters
         """
-        return self.__class__.default_hyperparameters.copy()
+        return self.get_default_hyperparameters_typed().to_dict()
+
+    def get_default_hyperparameters_typed(self) -> HyperParamsType:
+        """
+        Get default hyperparameters for this model as a typed instance.
+
+        Returns a type-safe instance of hyperparameters with default values.
+        This provides autocomplete and type checking in IDEs.
+
+        Returns:
+            Typed hyperparameters instance with default values
+
+        Raises:
+            ValueError: If hyperparams_class is not defined
+        """
+        if self.hyperparams_class is None:
+            msg = f"hyperparams_class not defined for {self.model_name}"
+            raise ValueError(msg)
+        # Create instance with default values (Pydantic will use Field defaults)
+        return self.hyperparams_class()
 
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue] | HyperParamsType) -> bool:
         """
@@ -101,8 +117,8 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
             # Create typed instance if hyperparams_class is defined
             if self.hyperparams_class is not None:
                 # Merge with defaults first
-                defaults = self.get_default_hyperparameters()
-                merged = defaults.copy()
+                defaults_dict = self.get_default_hyperparameters()
+                merged = defaults_dict.copy()
                 merged.update(hyperparams_dict)
                 # Create typed instance (should always succeed if hyperparams_class is defined)
                 self._typed_hyperparameters = self.hyperparams_class(**merged)
@@ -111,8 +127,8 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
                 self._typed_hyperparameters = None
 
         # Merge with defaults
-        defaults = self.get_default_hyperparameters()
-        merged = defaults.copy()
+        defaults_dict = self.get_default_hyperparameters()
+        merged = defaults_dict.copy()
         merged.update(hyperparams_dict)
 
         # Store hyperparameters in BaseConfig format (for generic access)

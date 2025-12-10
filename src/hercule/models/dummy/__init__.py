@@ -32,12 +32,21 @@ class DummyModel(RLModel[DummyModelHyperParams]):
 
     # Class attribute for model name (static, immutable)
     model_name: ClassVar[str] = "dummy"
-    # Default hyperparameters for Dummy model (static, immutable)
-    default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {
-        "seed": 42,
-    }
     # Type-safe hyperparameters class
     hyperparams_class: ClassVar[type[HyperParamsBase]] = DummyModelHyperParams
+    
+    @classmethod
+    def default_hyperparameters_typed(cls) -> DummyModelHyperParams:
+        """
+        Get default hyperparameters as a typed instance.
+        
+        Returns a type-safe instance of DummyModelHyperParams with default values.
+        This provides autocomplete and type checking in IDEs.
+        
+        Returns:
+            Typed hyperparameters instance with default values
+        """
+        return DummyModelHyperParams()
 
     # Private attributes (not Pydantic fields, use PrivateAttr to avoid validation)
     _action_space: gym.Space | None = PrivateAttr(default=None)
