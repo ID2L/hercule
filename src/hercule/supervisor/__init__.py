@@ -54,11 +54,13 @@ class Supervisor(BaseModel):
                 save_environment(environment, env_save_path)
 
                 model = create_model(model_config.name)
-                model.configure(environment, model_config.get_hyperparameters_dict())
+                provided_hyperparameters = model_config.get_hyperparameters_dict()
+                model.configure(environment, provided_hyperparameters)
                 model.load(directory)
 
                 # Run training
                 runner = Runner.load(directory)
+                # Hyperparameters are automatically retrieved from the configured model
                 runner.configure(model, environment)
 
                 runner.learn(self.config.learn_max_epoch, self.config.save_every_n_epoch)
@@ -74,10 +76,12 @@ class Supervisor(BaseModel):
                     environment_config.name, **environment_config.get_hyperparameters_dict()
                 )
                 model = create_model(model_config.name)
-                model.configure(environment, model_config.get_hyperparameters_dict())
+                provided_hyperparameters = model_config.get_hyperparameters_dict()
+                model.configure(environment, provided_hyperparameters)
                 model.load(directory)
 
                 runner = Runner.load(directory)
+                # Hyperparameters are automatically retrieved from the configured model
                 runner.configure(model, environment)
 
                 runner.test(self.config.test_epoch)

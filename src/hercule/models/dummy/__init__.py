@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 import gymnasium as gym
 import numpy as np
@@ -22,8 +23,12 @@ class DummyModel(RLModel):
     It randomly selects actions from the available action space on each step.
     """
 
-    # Class attribute for model name
-    model_name: str = "dummy"
+    # Class attribute for model name (static, immutable)
+    model_name: ClassVar[str] = "dummy"
+    # Default hyperparameters for Dummy model (static, immutable)
+    default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {
+        "seed": 42,
+    }
 
     def __init__(self) -> None:
         """
@@ -34,7 +39,7 @@ class DummyModel(RLModel):
         """
         super().__init__()
         self._action_space: gym.Space | None = None
-        self._rng = np.random.default_rng(42)  # Default seed for reproducibility
+        self._rng: np.random.Generator | None = None  # Will be initialized in configure() from hyperparameters
         self.is_trained = True
 
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> None:
@@ -43,16 +48,20 @@ class DummyModel(RLModel):
 
         Args:
             env: Gymnasium environment
-            hyperparameters: Model hyperparameters (unused for dummy model)
+            hyperparameters: Model hyperparameters (will be merged with defaults)
         """
+        # Configure base class (this will merge with defaults and store in self.hyperparameters)
         super().configure(env, hyperparameters)
         self._action_space = env.action_space
 
-        # Set random seed if provided in hyperparameters
-        if "seed" in hyperparameters:
-            seed_value = hyperparameters["seed"]
-            if isinstance(seed_value, int):
-                self._rng = np.random.default_rng(seed_value)
+        # Get merged hyperparameters from BaseConfig (already stored in self.hyperparameters)
+        merged_hyperparameters = self.get_hyperparameters_dict()
+        defaults = self.get_default_hyperparameters()
+
+        # Set random seed from hyperparameters
+        seed_value = merged_hyperparameters.get("seed", defaults.get("seed", 42))
+        if isinstance(seed_value, int):
+            self._rng = np.random.default_rng(seed_value)
 
         logger.info(
             f"Dummy model '{self.model_name}' configured for environment with action space: {self._action_space}"

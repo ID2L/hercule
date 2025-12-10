@@ -41,6 +41,9 @@ class Runner(BaseModel):
     directory_path: Path = Field(default=Path("."), description="")
     model: RLModel | None = Field(default=None, description="")
     environment: gym.Env | None = Field(default=None, description="")
+    model_hyperparameters: dict[str, ParameterValue] = Field(
+        default_factory=dict, description="Model hyperparameters used for training"
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -49,8 +52,8 @@ class Runner(BaseModel):
         # La fonction load doit créer une instance de la classe runner à partir du chemin indiqué
         # Pour cela elle doit vérifier si un fichier "run_info.json" existe à l'empacement spécfié
         # Si il n'existe pas, on renvoie None
-        # Si il existe, alors on instancie une classe du Runner avec les informations récupérer dans {directory_path}/run_info.json
-        # en parsant le contenu du json
+        # Si il existe, alors on instancie une classe du Runner avec les informations
+        # récupérer dans {directory_path}/run_info.json en parsant le contenu du json
         run_info_file = directory_path / run_info_file_name
 
         if not run_info_file.exists():
@@ -99,15 +102,29 @@ class Runner(BaseModel):
             "testing_metrics": [metric.model_dump() for metric in self.testing_metrics],
         }
 
+        # Always add hyperparameters (may be empty dict if not set)
+        run_data["model_hyperparameters"] = self.model_hyperparameters
+
         # Écrire le fichier run_info.json
         with open(run_info_file, "w", encoding="utf-8") as f:
             json.dump(run_data, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Runner state saved to {run_info_file}")
 
-    def configure(self, model: RLModel, environment: gym.Env):
+    def configure(self, model: RLModel, environment: gym.Env) -> None:
+        """
+        Configure the runner with model and environment.
+
+        Hyperparameters are automatically retrieved from the configured model.
+
+        Args:
+            model: RL model to use (must be configured with hyperparameters)
+            environment: Gymnasium environment
+        """
         self.model = model
         self.environment = environment
+        # Get hyperparameters from the model (inherits from BaseConfig)
+        self.model_hyperparameters = model.get_hyperparameters_dict()
 
     def learn(self, max_epoch: int = 1000, save_every_n_epoch: int = None):
         if self.model is None or self.environment is None:

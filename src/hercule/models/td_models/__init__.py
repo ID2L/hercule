@@ -3,7 +3,7 @@
 import logging
 import random
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import gymnasium as gym
 import numpy as np
@@ -30,8 +30,15 @@ class TDModel(RLModel, ABC):
     updates. The main difference between implementations is in the update method.
     """
 
-    # Abstract class attribute for model name - must be overridden
-    model_name: str
+    # Default hyperparameters for TD models (static, immutable) - SARSA, Q-Learning, etc.
+    default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {
+        "learning_rate": 0.1,
+        "discount_factor": 0.95,
+        "epsilon": 1.0,
+        "epsilon_decay": 0.0,
+        "epsilon_min": 0.0,
+        "seed": 42,
+    }
 
     def __init__(self) -> None:
         """Initialize the TD model."""
@@ -39,14 +46,7 @@ class TDModel(RLModel, ABC):
         self._q_table: np.ndarray = np.zeros((0, 0), dtype=np.float64)
         self._action_space: Discrete
         self._observation_space: Discrete
-        self.seed = np.random.default_rng(42)
-
-        # Hyperparameters
-        self._learning_rate: float = 0.1
-        self._discount_factor: float = 0.95
-        self._epsilon: float = 1.0  # Default to 1.0 for no decay behavior
-        self._epsilon_decay: float = 0.0  # Default to 0.0 for no decay
-        self._epsilon_min: float = 0.0  # Default to 0.0
+        # Hyperparameters will be initialized in configure() from self.hyperparameters
 
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> bool:
         """
@@ -54,7 +54,7 @@ class TDModel(RLModel, ABC):
 
         Args:
             env: Gymnasium environment
-            hyperparameters: Model hyperparameters
+            hyperparameters: Model hyperparameters (will be merged with defaults)
 
         Returns:
             True if configuration successful, False otherwise
@@ -66,6 +66,7 @@ class TDModel(RLModel, ABC):
         if not check_space_is_discrete(env.action_space) or not check_space_is_discrete(env.observation_space):
             return False
 
+        # Configure base class (this will merge with defaults and store in self.hyperparameters)
         super().configure(env, hyperparameters)
         # Store environment spaces
         self._action_space = cast("Discrete", env.action_space)
@@ -73,37 +74,46 @@ class TDModel(RLModel, ABC):
 
         self._q_table = np.zeros((self._observation_space.n, self._action_space.n), dtype=np.float64)
 
+        # Get merged hyperparameters from BaseConfig (already stored in self.hyperparameters)
+        merged_hyperparameters = self.get_hyperparameters_dict()
+        defaults = self.get_default_hyperparameters()
+
         # Set hyperparameters with validation
-        lr = hyperparameters.get("learning_rate", 0.1)
+        lr_default = defaults.get("learning_rate", 0.1)
+        lr = merged_hyperparameters.get("learning_rate", lr_default)
         self._learning_rate = self._validate_hyperparameter(
-            float(lr) if isinstance(lr, int | float) else 0.1, "learning_rate", 0.0, 1.0
+            float(lr) if isinstance(lr, int | float) else lr_default, "learning_rate", 0.0, 1.0
         )
 
-        df = hyperparameters.get("discount_factor", 0.95)
+        df_default = defaults.get("discount_factor", 0.95)
+        df = merged_hyperparameters.get("discount_factor", df_default)
         self._discount_factor = self._validate_hyperparameter(
-            float(df) if isinstance(df, int | float) else 0.95, "discount_factor", 0.0, 1.0
+            float(df) if isinstance(df, int | float) else df_default, "discount_factor", 0.0, 1.0
         )
 
-        eps = hyperparameters.get("epsilon", 1.0)
+        eps_default = defaults.get("epsilon", 1.0)
+        eps = merged_hyperparameters.get("epsilon", eps_default)
         self._epsilon = self._validate_hyperparameter(
-            float(eps) if isinstance(eps, int | float) else 1.0, "epsilon", 0.0, 1.0
+            float(eps) if isinstance(eps, int | float) else eps_default, "epsilon", 0.0, 1.0
         )
 
-        eps_decay = hyperparameters.get("epsilon_decay", 0.0)
+        eps_decay_default = defaults.get("epsilon_decay", 0.0)
+        eps_decay = merged_hyperparameters.get("epsilon_decay", eps_decay_default)
         self._epsilon_decay = self._validate_hyperparameter(
-            float(eps_decay) if isinstance(eps_decay, int | float) else 0.0, "epsilon_decay", 0.0, 1.0
+            float(eps_decay) if isinstance(eps_decay, int | float) else eps_decay_default, "epsilon_decay", 0.0, 1.0
         )
 
-        eps_min = hyperparameters.get("epsilon_min", 0.0)
+        eps_min_default = defaults.get("epsilon_min", 0.0)
+        eps_min = merged_hyperparameters.get("epsilon_min", eps_min_default)
         self._epsilon_min = self._validate_hyperparameter(
-            float(eps_min) if isinstance(eps_min, int | float) else 0.0, "epsilon_min", 0.0, 1.0
+            float(eps_min) if isinstance(eps_min, int | float) else eps_min_default, "epsilon_min", 0.0, 1.0
         )
 
-        # Set random seed if provided
-        if "seed" in hyperparameters:
-            seed_value = hyperparameters["seed"]
-            if isinstance(seed_value, int):
-                self.seed = np.random.default_rng(seed_value)
+        # Set random seed from hyperparameters
+        seed_default = defaults.get("seed", 42)
+        seed_value = merged_hyperparameters.get("seed", seed_default)
+        if isinstance(seed_value, int):
+            self.seed = np.random.default_rng(seed_value)
 
         logger.info(
             f"'{self.model_name}' configured for environment with "

@@ -5,12 +5,12 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Final, cast, final
+from typing import ClassVar, Final, cast, final
 
 import gymnasium as gym
 import numpy as np
 
-from hercule.config import ParameterValue
+from hercule.config import BaseConfig, HyperParameter, ParameterValue
 from hercule.models.epoch_result import EpochResult
 
 
@@ -19,30 +19,60 @@ logger = logging.getLogger(__name__)
 model_file_name: Final = "model.json"
 
 
-class RLModel(ABC):
+class RLModel(BaseConfig, ABC):
     """Abstract base class for reinforcement learning models."""
 
-    # Class attribute for model name
-    model_name: str = "abstract_RL_model"
+    # Class attribute for model name (static, immutable)
+    model_name: ClassVar[str]
+    # Class attribute for default hyperparameters (static, immutable) - must be overridden by subclasses
+    default_hyperparameters: ClassVar[dict[str, ParameterValue]] = {}
 
-    def __init__(self) -> None:
+    def __init__(self, **kwargs) -> None:
         """
         Initialize the RL model.
 
-        Args:
-            name: Model name identifier (if None, uses class model_name)
+        The model inherits from BaseConfig, so it has:
+        - name: str (initialized from model_name)
+        - hyperparameters: list[HyperParameter] (empty by default)
         """
+        # Initialize BaseConfig with model_name as name if not provided
+        if "name" not in kwargs:
+            kwargs["name"] = self.model_name
+        super().__init__(**kwargs)
         self.env: gym.Env | None = None
 
-    @abstractmethod
+    def get_default_hyperparameters(self) -> dict[str, ParameterValue]:
+        """
+        Get default hyperparameters for this model.
+
+        Returns the class attribute default_hyperparameters, which should be
+        defined by each model subclass.
+
+        Returns:
+            Dictionary of default hyperparameters
+        """
+        return self.__class__.default_hyperparameters.copy()
+
     def configure(self, env: gym.Env, hyperparameters: dict[str, ParameterValue]) -> bool:
         """
         Configure the model for a specific environment.
 
         Args:
             env: Gymnasium environment
-            hyperparameters: Model hyperparameters
+            hyperparameters: Model hyperparameters (will be merged with defaults)
+
+        Note:
+            This method merges provided hyperparameters with defaults and stores
+            them in self.hyperparameters (list[HyperParameter]) for later retrieval.
         """
+        # Merge with defaults
+        defaults = self.get_default_hyperparameters()
+        merged = defaults.copy()
+        merged.update(hyperparameters)
+
+        # Store hyperparameters in BaseConfig format
+        self.hyperparameters = [HyperParameter(key=k, value=v) for k, v in merged.items()]
+
         self.env = env
         return True
 
