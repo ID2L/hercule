@@ -223,62 +223,35 @@ class DummyModel(RLModel[DummyModelHyperParams]):
 
         return metrics
 
-    def save(self, path: Path) -> None:
+    def _export(self) -> dict:
         """
-        Save dummy model state to disk.
+        Export dummy model data for serialization.
+
+        Returns:
+            Dictionary containing model data ready for JSON serialization
+        """
+        # Dummy model doesn't have any state to export, return empty dict
+        return {}
+
+    def _import(self, model_data: dict) -> None:
+        """
+        Import dummy model data from serialized format.
 
         Args:
-            path: Path where to save the model
+            model_data: Dictionary containing model data from JSON
         """
-        path.mkdir(parents=True, exist_ok=True)
+        # Dummy model doesn't have any state to import, this is a no-op
+        pass
 
-        # Save minimal model information
-        model_file = path / "dummy_model.txt"
-        with open(model_file, "w", encoding="utf-8") as f:
-            f.write(f"Dummy model: {self.model_name}\n")
-            f.write(f"Trained: {self.is_trained}\n")
-            f.write("Model type: Random action selection\n")
-            f.write("Learning: None (dummy model)\n")
-
-        # Save training metrics if available
-        if self._training_metrics:
-            metrics_file = path / "training_metrics.txt"
-            with open(metrics_file, "w", encoding="utf-8") as f:
-                f.write("Training Metrics:\n")
-                for key, value in self._training_metrics.items():
-                    f.write(f"{key}: {value}\n")
-
-        logger.info(f"Dummy model saved to {path}")
-
-    def load(self, path: Path) -> None:
+    def load_from_dict(self, model_data: dict) -> None:
         """
-        Load dummy model state from disk.
+        Load a trained dummy model from a dictionary.
 
         Args:
-            path: Path to the saved model
-
-        Raises:
-            FileNotFoundError: If model file is not found
+            model_data: Dictionary containing model data
         """
-        model_file = path / "dummy_model.txt"
-        if not model_file.exists():
-            msg = f"No dummy model found at {path}"
-            raise FileNotFoundError(msg)
-
-        # Load basic model state
-        with open(model_file, encoding="utf-8") as f:
-            content = f.read()
-            if "Trained: True" in content:
-                self.is_trained = True
-
-        # Load training metrics if available
-        metrics_file = path / "training_metrics.txt"
-        if metrics_file.exists():
-            # Parse metrics file - simple implementation
-            # For a more robust implementation, could use JSON
-            pass
-
-        logger.info(f"Loaded dummy model from {path}")
+        self._import(model_data)
+        logger.info(f"Loaded {self.model_name} model from dictionary")
 
 
 __all__ = ["DummyModel"]
