@@ -179,6 +179,22 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
     def run_epoch(self, train_mode=False) -> EpochResult:
         pass
 
+    @abstractmethod
+    def predict(self, observation: np.ndarray | int) -> int | float | np.ndarray:
+        """
+        Predict the best action for a given observation (inference mode).
+
+        This method should be used for inference/evaluation, not during training.
+        It typically calls act() with training=False.
+
+        Args:
+            observation: Current observation from the environment
+
+        Returns:
+            Selected action (int for discrete, float/array for continuous)
+        """
+        pass
+
     @final
     def save(self, path: Path) -> None:
         """

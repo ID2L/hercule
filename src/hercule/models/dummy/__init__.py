@@ -34,15 +34,15 @@ class DummyModel(RLModel[DummyModelHyperParams]):
     model_name: ClassVar[str] = "dummy"
     # Type-safe hyperparameters class
     hyperparams_class: ClassVar[type[HyperParamsBase]] = DummyModelHyperParams
-    
+
     @classmethod
     def default_hyperparameters_typed(cls) -> DummyModelHyperParams:
         """
         Get default hyperparameters as a typed instance.
-        
+
         Returns a type-safe instance of DummyModelHyperParams with default values.
         This provides autocomplete and type checking in IDEs.
-        
+
         Returns:
             Typed hyperparameters instance with default values
         """
@@ -126,6 +126,20 @@ class DummyModel(RLModel[DummyModelHyperParams]):
 
         # Use the environment's action space to sample a random action
         return self._action_space.sample()
+
+    def predict(self, observation: np.ndarray | int) -> int | np.ndarray:
+        """
+        Predict the best action for a given observation (inference mode).
+
+        For the dummy model, this returns a random action.
+
+        Args:
+            observation: Current observation from the environment (unused)
+
+        Returns:
+            Randomly selected action
+        """
+        return self.act(observation, training=False)
 
     def learn(
         self, observation: np.ndarray, action: int | np.ndarray, reward: float, next_observation: np.ndarray, done: bool
