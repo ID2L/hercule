@@ -23,11 +23,11 @@ environments:
         value: 200
 
 models:
-  # - name: "dummy"
-  #   type: "DummyModel"
-  #   hyperparameters:
-  #     - key: "seed"
-  #       value: 123
+  - name: "dummy"
+    type: "DummyModel"
+    hyperparameters:
+      - key: "seed"
+        value: 123
   - name: "simple_sarsa"
     hyperparameters:
       - key: "learning_rate"
@@ -54,7 +54,7 @@ models:
         value: 0.7
 
 # Nombre maximum d'itérations d'entraînement
-learn_max_epoch: 2000
+learn_max_epoch: 200
 save_every_n_epoch: 10
 # Répertoire de sortie
 base_output_dir: "outputs"

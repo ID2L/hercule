@@ -41,80 +41,86 @@ models:
       - key: "seed"
         value: 42
 
-  # Configuration 2: Learning rate plus faible, experience replay plus fréquent
-  - name: "deep_q_learning"
-    hyperparameters:
-      - key: "learning_rate"
-        value: 0.0001
-      - key: "discount_factor"
-        value: 0.95
-      - key: "epsilon"
-        value: 1.0
-      - key: "epsilon_decay"
-        value: 0.002
-      - key: "epsilon_min"
-        value: 0.05
-      - key: "replay_buffer_size"
-        value: 5000
-      - key: "batch_size"
-        value: 64
-      - key: "replay_modulo"
-        value: 2
-      - key: "target_update_frequency"
-        value: 500
-      - key: "seed"
-        value: 42
+  # # Configuration 2: Learning rate plus faible, experience replay plus fréquent
+  # - name: "deep_q_learning"
+  #   hyperparameters:
+  #     - key: "learning_rate"
+  #       value: 0.0001
+  #     - key: "discount_factor"
+  #       value: 0.95
+  #     - key: "epsilon"
+  #       value: 1.0
+  #     - key: "epsilon_decay"
+  #       value: 0.002
+  #     - key: "epsilon_min"
+  #       value: 0.05
+  #     - key: "replay_buffer_size"
+  #       value: 5000
+  #     - key: "batch_size"
+  #       value: 64
+  #     - key: "replay_modulo"
+  #       value: 2
+  #     - key: "target_update_frequency"
+  #       value: 500
+  #     - key: "seed"
+  #       value: 42
 
-  # Configuration 3: Learning rate plus élevé, buffer plus grand, replay moins fréquent
-  - name: "deep_q_learning"
-    hyperparameters:
-      - key: "learning_rate"
-        value: 0.001
-      - key: "discount_factor"
-        value: 0.99
-      - key: "epsilon"
-        value: 1.0
-      - key: "epsilon_decay"
-        value: 0.0005
-      - key: "epsilon_min"
-        value: 0.1
-      - key: "replay_buffer_size"
-        value: 20000
-      - key: "batch_size"
-        value: 32
-      - key: "replay_modulo"
-        value: 8
-      - key: "target_update_frequency"
-        value: 2000
-      - key: "seed"
-        value: 42
+  # # Configuration 3: Learning rate plus élevé, buffer plus grand, replay moins fréquent
+  # - name: "deep_q_learning"
+  #   hyperparameters:
+  #     - key: "learning_rate"
+  #       value: 0.001
+  #     - key: "discount_factor"
+  #       value: 0.99
+  #     - key: "epsilon"
+  #       value: 1.0
+  #     - key: "epsilon_decay"
+  #       value: 0.0005
+  #     - key: "epsilon_min"
+  #       value: 0.1
+  #     - key: "replay_buffer_size"
+  #       value: 20000
+  #     - key: "batch_size"
+  #       value: 32
+  #     - key: "replay_modulo"
+  #       value: 8
+  #     - key: "target_update_frequency"
+  #       value: 2000
+  #     - key: "seed"
+  #       value: 42
 
-  # Configuration 4: Configuration agressive (epsilon décroît rapidement, replay fréquent)
-  - name: "deep_q_learning"
+  # # Configuration 4: Configuration agressive (epsilon décroît rapidement, replay fréquent)
+  # - name: "deep_q_learning"
+  #   hyperparameters:
+  #     - key: "learning_rate"
+  #       value: 0.0005
+  #     - key: "discount_factor"
+  #       value: 0.99
+  #     - key: "epsilon"
+  #       value: 1.0
+  #     - key: "epsilon_decay"
+  #       value: 0.005
+  #     - key: "epsilon_min"
+  #       value: 0.01
+  #     - key: "replay_buffer_size"
+  #       value: 10000
+  #     - key: "batch_size"
+  #       value: 64
+  #     - key: "replay_modulo"
+  #       value: 1
+  #     - key: "target_update_frequency"
+  #       value: 500
+  #     - key: "seed"
+  #       value: 42
+
+  # Configuration dummy: Modèle de baseline avec actions aléatoires
+  - name: "dummy"
     hyperparameters:
-      - key: "learning_rate"
-        value: 0.0005
-      - key: "discount_factor"
-        value: 0.99
-      - key: "epsilon"
-        value: 1.0
-      - key: "epsilon_decay"
-        value: 0.005
-      - key: "epsilon_min"
-        value: 0.01
-      - key: "replay_buffer_size"
-        value: 10000
-      - key: "batch_size"
-        value: 64
-      - key: "replay_modulo"
-        value: 1
-      - key: "target_update_frequency"
-        value: 500
       - key: "seed"
         value: 42
 
 # Nombre maximum d'itérations d'entraînement
-learn_max_epoch: 100
+learn_max_epoch: 20000
 # Nombre d'itérations de test
 test_epoch: 100
 # Sauvegarder le modèle tous les N epochs
