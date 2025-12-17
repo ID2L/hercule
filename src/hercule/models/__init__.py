@@ -192,6 +192,9 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
         # Get model data from implementation
         model_data = self._export()
 
+        # Add model name to exported data for proper deserialization
+        model_data["model_name"] = self.model_name
+
         # Save as JSON
         model_file = path / model_file_name
         with open(model_file, "w", encoding="utf-8") as f:

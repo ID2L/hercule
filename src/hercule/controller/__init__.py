@@ -106,7 +106,15 @@ def play_interactive(
         with open(model_file, encoding="utf-8") as f:
             model_data = json.load(f)
 
-        model_name = model_data.get("model_name", "simple_sarsa")
+        # Require model_name to be present - no default fallback
+        if "model_name" not in model_data:
+            msg = (
+                f"Model file {model_file} does not contain 'model_name' field. "
+                "Cannot determine which model type to load. Please ensure the model was saved correctly."
+            )
+            raise ValueError(msg)
+
+        model_name = model_data["model_name"]
         model: RLModel = create_model(model_name)
 
         # Configure then hydrate weights
