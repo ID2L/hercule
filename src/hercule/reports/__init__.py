@@ -325,18 +325,17 @@ def generate_individual_report(experiment_path: Path, output_path: Path | None =
     env.filters["topython"] = lambda v, indent=2: _format_python_value(v, indent=indent)
     template = env.get_template("report_template.py.j2")
 
+    # Calculate relative path from report to experiment directory
+    # Since report is in the same directory as experiment, relative path is "."
+    experiment_relative_path = "."
+    
     # Prepare template context
     context = {
         "experiment_path": str(experiment_path),
-        "environment_data": experiment_data.environment_data,
-        "model_data": experiment_data.model_data,
-        "run_info_data": experiment_data.run_info_data,
-        "learning_rewards": experiment_data.get_learning_rewards(),
-        "learning_steps": experiment_data.get_learning_steps(),
-        "testing_rewards": experiment_data.get_testing_rewards(),
-        "testing_steps": experiment_data.get_testing_steps(),
-        "learning_metrics": experiment_data.learning_metrics,
-        "testing_metrics": experiment_data.testing_metrics,
+        "experiment_relative_path": experiment_relative_path,
+        "environment_file_name": environment_file_name,
+        "model_file_name": model_file_name,
+        "run_info_file_name": run_info_file_name,
     }
 
     # Generate report
@@ -445,24 +444,17 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
                     # Generate a readable name from the directory path relative to env_params_dir
                     relative_path = exp_dir.relative_to(env_params_dir)
                     exp_name = str(relative_path).replace("\\", "/")
+                    # Calculate relative path for loading JSON files (use forward slashes for cross-platform compatibility)
+                    exp_relative_path = str(relative_path).replace("\\", "/")
 
                     experiments.append(
                         {
                             "path": str(exp_dir),
                             "name": exp_name,
-                            "environment_data": exp_data.environment_data,
-                            "model_data": exp_data.model_data,
-                            "run_info_data": exp_data.run_info_data,
-                            "learning_rewards": exp_data.get_learning_rewards(),
-                            "learning_steps": exp_data.get_learning_steps(),
-                            "testing_rewards": exp_data.get_testing_rewards(),
-                            "testing_steps": exp_data.get_testing_steps(),
-                            "model_hyperparameters": exp_data.run_info_data.get("model_hyperparameters", {})
-                            if exp_data.run_info_data
-                            else {},
+                            "relative_path": exp_relative_path,
                         }
                     )
-                    logger.debug(f"Loaded experiment data from: {exp_dir}")
+                    logger.debug(f"Prepared experiment data from: {exp_dir}")
                 else:
                     logger.warning(f"Failed to load data from: {exp_dir}")
             except Exception as e:
@@ -483,6 +475,9 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
         context = {
             "root_path": str(env_params_dir),
             "experiments": experiments,
+            "environment_file_name": environment_file_name,
+            "model_file_name": model_file_name,
+            "run_info_file_name": run_info_file_name,
         }
 
         # Generate report

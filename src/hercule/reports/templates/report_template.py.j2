@@ -35,10 +35,13 @@ from pathlib import Path
 # %% [markdown]
 # ## Experiment Overview
 
-{% if environment_data %}
 # %%
+# Get the directory where this report is located (same as experiment directory)
+experiment_dir = Path(__file__).parent.resolve()
+
 # Load environment configuration
-environment_config = {{ environment_data | topython(indent=2) }}
+with open(experiment_dir / "{{ environment_file_name }}", encoding="utf-8") as f:
+    environment_config = json.load(f)
 
 # %% [markdown]
 # ### Environment Configuration
@@ -50,11 +53,11 @@ print("## Environment Configuration")
 print("```json")
 print(json.dumps(environment_config, indent=2))
 print("```")
-{% endif %}
-{% if model_data %}
+
 # %%
 # Load model configuration
-model_config = {{ model_data | topython(indent=2) }}
+with open(experiment_dir / "{{ model_file_name }}", encoding="utf-8") as f:
+    model_config = json.load(f)
 
 # %% [markdown]
 # ### Model Configuration
@@ -66,23 +69,31 @@ print("## Model Configuration")
 print("```json")
 print(json.dumps(model_config, indent=2))
 print("```")
-{% endif %}
-{% if run_info_data %}
+
+# %%
+# Load run_info data
+with open(experiment_dir / "{{ run_info_file_name }}", encoding="utf-8") as f:
+    run_info_data = json.load(f)
+
 # %% [markdown]
 # ### Training Information
 #
-# - **Learning Epochs:** {{ run_info_data.learning_ongoing_epoch }}
-# - **Testing Epochs:** {{ run_info_data.testing_ongoing_epoch }}
-{% endif %}
+# Training information from the experiment:
+
+# %%
+print("### Training Information")
+print(f"- **Learning Epochs:** {run_info_data.get('learning_ongoing_epoch', 0)}")
+print(f"- **Testing Epochs:** {run_info_data.get('testing_ongoing_epoch', 0)}")
+
 # %% [markdown]
 # ## Data Loading and Preparation
 
 # %%
-# Load experiment data
-learning_rewards = {{ learning_rewards | topython }}
-learning_steps = {{ learning_steps | topython }}
-testing_rewards = {{ testing_rewards | topython }}
-testing_steps = {{ testing_steps | topython }}
+# Load experiment data from run_info
+learning_rewards = [metric.get("reward", 0) for metric in run_info_data.get("learning_metrics", [])]
+learning_steps = [metric.get("steps_number", 0) for metric in run_info_data.get("learning_metrics", [])]
+testing_rewards = [metric.get("reward", 0) for metric in run_info_data.get("testing_metrics", [])]
+testing_steps = [metric.get("steps_number", 0) for metric in run_info_data.get("testing_metrics", [])]
 
 # %% [markdown]
 # ### Data Summary
@@ -92,15 +103,12 @@ testing_steps = {{ testing_steps | topython }}
 print("## Data Summary")
 print(f"- **Learning Episodes:** {len(learning_rewards)}")
 print(f"- **Testing Episodes:** {len(testing_rewards)}")
-{% if learning_rewards %}
-print(f"- **Learning Reward Range:** [{min(learning_rewards):.3f}, {max(learning_rewards):.3f}]")
-print(f"- **Learning Reward Mean:** {np.mean(learning_rewards):.3f} ± {np.std(learning_rewards):.3f}")
-{% endif %}
-{% if testing_rewards %}
-print(f"- **Testing Reward Range:** [{min(testing_rewards):.3f}, {max(testing_rewards):.3f}]")
-print(f"- **Testing Reward Mean:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
-{% endif %}
-{% if learning_rewards %}
+if learning_rewards:
+    print(f"- **Learning Reward Range:** [{min(learning_rewards):.3f}, {max(learning_rewards):.3f}]")
+    print(f"- **Learning Reward Mean:** {np.mean(learning_rewards):.3f} ± {np.std(learning_rewards):.3f}")
+if testing_rewards:
+    print(f"- **Testing Reward Range:** [{min(testing_rewards):.3f}, {max(testing_rewards):.3f}]")
+    print(f"- **Testing Reward Mean:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
 # %% [markdown]
 # ## Learning Progress Visualization
 #
@@ -168,76 +176,76 @@ print("### Learning Statistics")
 print(f"- **Mean Reward:** {np.mean(learning_rewards):.3f} ± {np.std(learning_rewards):.3f}")
 print(f"- **Mean Steps:** {np.mean(learning_steps):.3f} ± {np.std(learning_steps):.3f}")
 print(f"- **Success Rate:** {(np.array(learning_rewards) > 0).mean() * 100:.1f}%")
-{% endif %}
-{% if testing_rewards %}
-# %% [markdown]
-# ## Final Model Evaluation
-#
-# This section presents the final evaluation of the model on test data.
 
-# %%
-# Create evaluation plots
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+if testing_rewards:
+    # %% [markdown]
+    # ## Final Model Evaluation
+    #
+    # This section presents the final evaluation of the model on test data.
 
-# Boxplot for testing rewards
-ax1 = axes[0]
-ax1.boxplot(testing_rewards, labels=['Testing Rewards'])
-ax1.set_title('Final Model Evaluation - Rewards')
-ax1.set_ylabel('Reward')
-ax1.grid(True, alpha=0.3)
+    # %%
+    # Create evaluation plots
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-# Boxplot for testing steps
-ax2 = axes[1]
-ax2.boxplot(testing_steps, labels=['Testing Steps'])
-ax2.set_title('Final Model Evaluation - Steps')
-ax2.set_ylabel('Steps')
-ax2.grid(True, alpha=0.3)
+    # Boxplot for testing rewards
+    ax1 = axes[0]
+    ax1.boxplot(testing_rewards, labels=['Testing Rewards'])
+    ax1.set_title('Final Model Evaluation - Rewards')
+    ax1.set_ylabel('Reward')
+    ax1.grid(True, alpha=0.3)
 
-plt.tight_layout()
-plt.show()
+    # Boxplot for testing steps
+    ax2 = axes[1]
+    ax2.boxplot(testing_steps, labels=['Testing Steps'])
+    ax2.set_title('Final Model Evaluation - Steps')
+    ax2.set_ylabel('Steps')
+    ax2.grid(True, alpha=0.3)
 
-# %% [markdown]
-# ### Evaluation Statistics
+    plt.tight_layout()
+    plt.show()
 
-# %%
-# Evaluation statistics
-print("### Evaluation Statistics")
-print(f"- **Mean Reward:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
-print(f"- **Mean Steps:** {np.mean(testing_steps):.3f} ± {np.std(testing_steps):.3f}")
-print(f"- **Success Rate:** {(np.array(testing_rewards) > 0).mean() * 100:.1f}%")
-print(f"- **Min Reward:** {np.min(testing_rewards):.3f}")
-print(f"- **Max Reward:** {np.max(testing_rewards):.3f}")
-{% endif %}
+    # %% [markdown]
+    # ### Evaluation Statistics
+
+    # %%
+    # Evaluation statistics
+    print("### Evaluation Statistics")
+    print(f"- **Mean Reward:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
+    print(f"- **Mean Steps:** {np.mean(testing_steps):.3f} ± {np.std(testing_steps):.3f}")
+    print(f"- **Success Rate:** {(np.array(testing_rewards) > 0).mean() * 100:.1f}%")
+    print(f"- **Min Reward:** {np.min(testing_rewards):.3f}")
+    print(f"- **Max Reward:** {np.max(testing_rewards):.3f}")
+
 # %% [markdown]
 # ## Performance Analysis
 #
 # Comparative analysis of learning and testing performance.
 
 # %%
-{% if learning_rewards and testing_rewards %}# Compare learning vs testing performance
-learning_mean = np.mean(learning_rewards)
-testing_mean = np.mean(testing_rewards)
-improvement = ((testing_mean - learning_mean) / abs(learning_mean)) * 100 if learning_mean != 0 else 0
+if learning_rewards and testing_rewards:
+    # Compare learning vs testing performance
+    learning_mean = np.mean(learning_rewards)
+    testing_mean = np.mean(testing_rewards)
+    improvement = ((testing_mean - learning_mean) / abs(learning_mean)) * 100 if learning_mean != 0 else 0
 
-print(f"- **Learning Performance:** {learning_mean:.3f} ± {np.std(learning_rewards):.3f}")
-print(f"- **Testing Performance:** {testing_mean:.3f} ± {np.std(testing_rewards):.3f}")
-print(f"- **Performance Change:** {improvement:+.1f}%")
-{% endif %}
+    print(f"- **Learning Performance:** {learning_mean:.3f} ± {np.std(learning_rewards):.3f}")
+    print(f"- **Testing Performance:** {testing_mean:.3f} ± {np.std(testing_rewards):.3f}")
+    print(f"- **Performance Change:** {improvement:+.1f}%")
+
 # %% [markdown]
 # ## Conclusion
 
 # %%
-{% if learning_rewards and testing_rewards %}# Final conclusion analysis
-print("## Conclusion")
-print(f"The experiment completed {len(learning_rewards)} learning episodes")
-{% if testing_rewards %}
-print(f"and {len(testing_rewards)} testing episodes.")
-{% endif %}
-if np.mean(testing_rewards) > np.mean(learning_rewards):
-    print("The model shows good generalization with testing performance exceeding learning performance.")
-else:
-    print("The model may be overfitting as testing performance is lower than learning performance.")
-{% endif %}
+if learning_rewards and testing_rewards:
+    # Final conclusion analysis
+    print("## Conclusion")
+    print(f"The experiment completed {len(learning_rewards)} learning episodes")
+    if testing_rewards:
+        print(f"and {len(testing_rewards)} testing episodes.")
+    if np.mean(testing_rewards) > np.mean(learning_rewards):
+        print("The model shows good generalization with testing performance exceeding learning performance.")
+    else:
+        print("The model may be overfitting as testing performance is lower than learning performance.")
 # %% [markdown]
 # ---
 # *Report generated automatically by Hercule*

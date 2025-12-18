@@ -41,19 +41,36 @@ from collections import defaultdict
 
 # %%
 # Load all experiment data
+# Get the directory where this report is located
+report_dir = Path(__file__).parent.resolve()
 experiments_data = []
 {% for exp in experiments %}
-experiment_{{ loop.index0 }}_path = Path("{{ exp.path }}")
+# Load experiment {{ loop.index0 }} data from JSON files
+experiment_{{ loop.index0 }}_relative_path = Path("{{ exp.relative_path }}")
+experiment_{{ loop.index0 }}_exp_dir = (report_dir / experiment_{{ loop.index0 }}_relative_path).resolve()
 experiment_{{ loop.index0 }}_name = "{{ exp.name }}"
-experiment_{{ loop.index0 }}_model = {{ exp.model_data | topython(indent=2) }}
-experiment_{{ loop.index0 }}_environment = {{ exp.environment_data | topython(indent=2) }}
-experiment_{{ loop.index0 }}_learning_rewards = {{ exp.learning_rewards | tojson }}
-experiment_{{ loop.index0 }}_learning_steps = {{ exp.learning_steps | tojson }}
-experiment_{{ loop.index0 }}_testing_rewards = {{ exp.testing_rewards | tojson }}
-experiment_{{ loop.index0 }}_testing_steps = {{ exp.testing_steps | tojson }}
-experiment_{{ loop.index0 }}_hyperparameters = {{ exp.model_hyperparameters | topython(indent=2) }}
+
+# Load model data
+with open(experiment_{{ loop.index0 }}_exp_dir / "{{ model_file_name }}", encoding="utf-8") as f:
+    experiment_{{ loop.index0 }}_model = json.load(f)
+
+# Load environment data
+with open(experiment_{{ loop.index0 }}_exp_dir / "{{ environment_file_name }}", encoding="utf-8") as f:
+    experiment_{{ loop.index0 }}_environment = json.load(f)
+
+# Load run_info data
+with open(experiment_{{ loop.index0 }}_exp_dir / "{{ run_info_file_name }}", encoding="utf-8") as f:
+    experiment_{{ loop.index0 }}_run_info = json.load(f)
+
+# Extract learning and testing data from run_info
+experiment_{{ loop.index0 }}_learning_rewards = [metric.get("reward", 0) for metric in experiment_{{ loop.index0 }}_run_info.get("learning_metrics", [])]
+experiment_{{ loop.index0 }}_learning_steps = [metric.get("steps_number", 0) for metric in experiment_{{ loop.index0 }}_run_info.get("learning_metrics", [])]
+experiment_{{ loop.index0 }}_testing_rewards = [metric.get("reward", 0) for metric in experiment_{{ loop.index0 }}_run_info.get("testing_metrics", [])]
+experiment_{{ loop.index0 }}_testing_steps = [metric.get("steps_number", 0) for metric in experiment_{{ loop.index0 }}_run_info.get("testing_metrics", [])]
+experiment_{{ loop.index0 }}_hyperparameters = experiment_{{ loop.index0 }}_run_info.get("model_hyperparameters", {})
+
 experiment_{{ loop.index0 }}_data = {
-    "path": experiment_{{ loop.index0 }}_path,
+    "path": experiment_{{ loop.index0 }}_exp_dir,
     "name": experiment_{{ loop.index0 }}_name,
     "model_config": experiment_{{ loop.index0 }}_model,
     "environment_config": experiment_{{ loop.index0 }}_environment,
