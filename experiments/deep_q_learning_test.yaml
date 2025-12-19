@@ -41,29 +41,29 @@ models:
       - key: "seed"
         value: 42
 
-  # # Configuration 2: Learning rate plus faible, experience replay plus fréquent
-  # - name: "deep_q_learning"
-  #   hyperparameters:
-  #     - key: "learning_rate"
-  #       value: 0.0001
-  #     - key: "discount_factor"
-  #       value: 0.95
-  #     - key: "epsilon"
-  #       value: 1.0
-  #     - key: "epsilon_decay"
-  #       value: 0.002
-  #     - key: "epsilon_min"
-  #       value: 0.05
-  #     - key: "replay_buffer_size"
-  #       value: 5000
-  #     - key: "batch_size"
-  #       value: 64
-  #     - key: "replay_modulo"
-  #       value: 2
-  #     - key: "target_update_frequency"
-  #       value: 500
-  #     - key: "seed"
-  #       value: 42
+  # Configuration 2: Learning rate plus faible, experience replay plus fréquent
+  - name: "deep_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.001
+      - key: "discount_factor"
+        value: 0.95
+      - key: "epsilon"
+        value: 1.0
+      - key: "epsilon_decay"
+        value: 0.002
+      - key: "epsilon_min"
+        value: 0.05
+      - key: "replay_buffer_size"
+        value: 5000
+      - key: "batch_size"
+        value: 64
+      - key: "replay_modulo"
+        value: 2
+      - key: "target_update_frequency"
+        value: 500
+      - key: "seed"
+        value: 42
 
   # # Configuration 3: Learning rate plus élevé, buffer plus grand, replay moins fréquent
   # - name: "deep_q_learning"

@@ -112,7 +112,7 @@ class HerculeConfig(BaseModel):
     base_output_dir: Path = Field(
         default_factory=lambda: Path("outputs"), description="Directory for saving results and models"
     )
-    save_every_n_epoch: int | None = Field(default=None, ge=1, description="Number of epochs to save the model")
+    save_every_n_epoch: int = Field(default=500, ge=1, description="Number of epochs to save the model")
     evaluation: RunConfig | None = Field(default=None, description="Evaluation configuration after training")
 
     @field_validator("environments")

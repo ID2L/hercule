@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from collections import defaultdict
+from hercule.environnements import EnvironmentInspector, load_environment
 
 # %% [markdown]
 # ## Experiment Overview
@@ -103,6 +104,64 @@ for i, exp in enumerate(experiments_data, 1):
     print(f"  - Learning episodes: {len(exp['learning_rewards'])}")
     print(f"  - Testing episodes: {len(exp['testing_rewards'])}")
     print()
+
+# %% [markdown]
+# ### Environment Details
+#
+# Detailed information about the environment's observation and action spaces.
+# All experiments in this comparison use the same environment configuration.
+
+# %%
+# Load environment from first experiment (all experiments share the same environment)
+if experiments_data:
+    first_exp_env_path = experiments_data[0]['path'] / "{{ environment_file_name }}"
+    env = load_environment(first_exp_env_path)
+    env_info = EnvironmentInspector.get_environment_info(env)
+    env.close()
+    
+    # Display observation space details
+    print("### Observation Space")
+    obs_space = env_info.observation_space
+    print(f"- **Type:** {obs_space.type}")
+    if obs_space.type == "Discrete":
+        print(f"- **Space Type:** Discrete")
+        print(f"- **Number of possible observations:** {obs_space.n}")
+        print(f"- **Shape:** N/A (discrete space)")
+    elif obs_space.type == "Box":
+        print(f"- **Space Type:** Continuous (Box)")
+        print(f"- **Shape:** {obs_space.shape}")
+        if obs_space.low is not None and obs_space.high is not None:
+            print(f"- **Lower bounds:** {obs_space.low}")
+            print(f"- **Upper bounds:** {obs_space.high}")
+    else:
+        print(f"- **Shape:** {obs_space.shape}")
+    
+    # Display action space details
+    print("\n### Action Space")
+    action_space = env_info.action_space
+    print(f"- **Type:** {action_space.type}")
+    if action_space.type == "Discrete":
+        print(f"- **Space Type:** Discrete")
+        print(f"- **Number of actions:** {action_space.n}")
+        print(f"- **Shape:** N/A (discrete space)")
+        print(f"- **Possible actions:** {list(range(action_space.n))}")
+    elif action_space.type == "Box":
+        print(f"- **Space Type:** Continuous (Box)")
+        print(f"- **Shape:** {action_space.shape}")
+        if action_space.low is not None and action_space.high is not None:
+            print(f"- **Lower bounds:** {action_space.low}")
+            print(f"- **Upper bounds:** {action_space.high}")
+            print(f"- **Action range:** Each action dimension is bounded by the above limits")
+    else:
+        print(f"- **Shape:** {action_space.shape}")
+    
+    # Display reward information if available
+    print("\n### Reward Information")
+    if env_info.spec_info and env_info.spec_info.reward_threshold is not None:
+        print(f"- **Reward threshold:** {env_info.spec_info.reward_threshold}")
+        print("  (This is the reward threshold considered for solving the environment)")
+    else:
+        print("- **Reward threshold:** Not specified in environment spec")
 
 # %% [markdown]
 # ## Hyperparameters Comparison
