@@ -1,0 +1,52 @@
+# Configuration pour tester Deep Q-Learning sur CartPole avec grille d'hyperparamètres
+
+# Configuration name
+name: "dq_cartpole"
+
+environments:
+  # Configuration par défaut (sans hyperparamètres)
+  - name: "CartPole-v1"
+  # Configuration avec sutton_barto_reward
+  - name: "CartPole-v1"
+    hyperparameters:
+      - key: "sutton_barto_reward"
+        value: true
+
+models:
+  # Modèle dummy pour baseline
+  - name: "dummy"
+    hyperparameters:
+      - key: "seed"
+        value: 42
+
+  # Deep Q-Learning avec grille d'hyperparamètres (3 valeurs par hyperparamètre)
+  - name: "deep_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: [0.0001, 0.00025, 0.001]
+      - key: "discount_factor"
+        value: [0.95, 0.99, 0.999]
+      - key: "epsilon"
+        value: 1.0
+      - key: "epsilon_decay"
+        value: [0.0005, 0.001, 0.002]
+      - key: "epsilon_min"
+        value: [0.01, 0.05, 0.1]
+      - key: "replay_buffer_size"
+        value: [5000, 10000, 20000]
+      - key: "batch_size"
+        value: [32, 64, 128]
+      - key: "replay_modulo"
+        value: [2, 4, 8]
+      - key: "target_update_frequency"
+        value: [500, 1000, 2000]
+      - key: "seed"
+        value: 42
+
+# Nombre maximum d'itérations d'entraînement
+learn_max_epoch: 10000
+# Sauvegarder le modèle tous les N epochs
+save_every_n_epoch: 100
+# Répertoire de sortie
+base_output_dir: "outputs"
+
