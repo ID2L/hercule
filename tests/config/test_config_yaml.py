@@ -76,11 +76,18 @@ class TestHerculeConfigYAML:
         assert str(config.base_output_dir) == "multi_outputs"
 
         # Test models
-        assert len(config.models) == 2
+        # advanced_model has 3 lists with 2 values each, so 2*2*2=8 variants
+        # plus 1 simple_model = 9 total models
+        assert len(config.models) == 9
         assert config.models[0].name == "simple_model"
-        assert config.models[1].name == "advanced_model"
+        # All variants should be expanded (no lists in hyperparameters)
+        for model in config.models:
+            assert all(not isinstance(hp.value, list) for hp in model.hyperparameters)
         assert len(config.models[0].hyperparameters) == 2
-        assert len(config.models[1].hyperparameters) == 6
+        # All advanced_model variants should have 6 hyperparameters
+        advanced_models = [m for m in config.models if m.name == "advanced_model"]
+        assert len(advanced_models) == 8
+        assert all(len(m.hyperparameters) == 6 for m in advanced_models)
 
         # Test evaluation
         assert config.evaluation is not None

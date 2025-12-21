@@ -1,5 +1,6 @@
 """Configuration module for Hercule reinforcement learning framework."""
 
+import itertools
 import json
 import re
 from pathlib import Path
@@ -47,6 +48,55 @@ class BaseConfig(BaseModel):
         """Get hyperparameters as a dictionary."""
         return {hp.key: hp.value for hp in self.hyperparameters}
 
+    def expand_variants(self) -> list["BaseConfig"]:
+        """
+        Generate all variants of this configuration by expanding lists in hyperparameter values.
+
+        If any hyperparameter value is a list, this method generates all combinations
+        using the cartesian product of all list values.
+
+        Returns:
+            List of BaseConfig instances, each with scalar hyperparameter values.
+            If no lists are present, returns a list containing only self.
+        """
+        # Check if any hyperparameter has a list value
+        has_lists = any(isinstance(hp.value, list) for hp in self.hyperparameters)
+
+        if not has_lists:
+            # No lists, return self as a single variant
+            return [self]
+
+        # Build lists of values for each hyperparameter
+        # Single values are wrapped in a list for itertools.product
+        value_lists = []
+        param_keys = []
+
+        for hp in self.hyperparameters:
+            param_keys.append(hp.key)
+            if isinstance(hp.value, list):
+                value_lists.append(hp.value)
+            else:
+                value_lists.append([hp.value])
+
+        # Generate all combinations using cartesian product
+        variants = []
+        for combination in itertools.product(*value_lists):
+            # Create a new list of HyperParameter with scalar values
+            new_hyperparameters = [
+                HyperParameter(key=key, value=value) for key, value in zip(param_keys, combination, strict=True)
+            ]
+            # Create a new config instance with these hyperparameters
+            if isinstance(self, ModelConfig):
+                variant = ModelConfig(name=self.name, hyperparameters=new_hyperparameters)
+            elif isinstance(self, EnvironmentConfig):
+                variant = EnvironmentConfig(name=self.name, hyperparameters=new_hyperparameters)
+            else:
+                # Fallback for BaseConfig (shouldn't happen in practice)
+                variant = BaseConfig(name=self.name, hyperparameters=new_hyperparameters)
+            variants.append(variant)
+
+        return variants
+
     def get_hyperparameters_signature(self) -> str:
         """
         Generate a short signature from hyperparameters.
@@ -54,6 +104,9 @@ class BaseConfig(BaseModel):
         Returns a string composed of the first three letters of each word in the hyperparameter name
         (split on non-alphanumeric characters) followed by its value, sorted alphabetically by
         parameter name, separated by "_".
+
+        Note: This method expects scalar values only. Lists should be expanded using expand_variants()
+        before calling this method.
         """
         if not self.hyperparameters:
             return "default"
@@ -63,6 +116,13 @@ class BaseConfig(BaseModel):
 
         signature_parts = []
         for hp in sorted_params:
+            # Check for lists (should not happen after expand_variants())
+            if isinstance(hp.value, list):
+                raise ValueError(
+                    f"Cannot generate signature for list value in hyperparameter '{hp.key}'. "
+                    "Lists must be expanded using expand_variants() first."
+                )
+
             # Split parameter name on non-alphanumeric characters
             words = re.split(r"[^a-zA-Z0-9]", hp.key)
             # Filter out empty strings and get first 3 letters of each word
@@ -219,6 +279,44 @@ class HerculeConfig(BaseModel):
         config_str = convert_for_python(config_dict)
         return f"HerculeConfig(**{config_str})"
 
+    def expand_variants(self) -> "HerculeConfig":
+        """
+        Expand all configurations with list values into multiple variants.
+
+        This method expands both models and environments that contain list values
+        in their hyperparameters, generating all possible combinations using
+        cartesian product.
+
+        Returns:
+            New HerculeConfig instance with all variants expanded.
+        """
+        # Expand all model configs
+        expanded_models = []
+        for model in self.models:
+            expanded_models.extend(model.expand_variants())
+
+        # Expand all environment configs
+        expanded_environments = []
+        for env in self.environments:
+            if isinstance(env, str):
+                # String environments are kept as-is
+                expanded_environments.append(env)
+            else:
+                # EnvironmentConfig: expand variants
+                expanded_environments.extend(env.expand_variants())
+
+        # Create new config with expanded variants
+        return HerculeConfig(
+            name=self.name,
+            environments=expanded_environments,
+            models=expanded_models,
+            learn_max_epoch=self.learn_max_epoch,
+            test_epoch=self.test_epoch,
+            base_output_dir=self.base_output_dir,
+            save_every_n_epoch=self.save_every_n_epoch,
+            evaluation=self.evaluation,
+        )
+
     def get_directory_for(self, model: ModelConfig, environment: EnvironmentConfig) -> Path:
         """
         Get the directory for a specific model and environment.
@@ -269,7 +367,9 @@ def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:
     with open(config_path, encoding="utf-8") as file:
         config_data = yaml.safe_load(file)
 
-    return HerculeConfig(**config_data)
+    config = HerculeConfig(**config_data)
+    # Automatically expand variants with list values
+    return config.expand_variants()
 
 
 def create_default_config() -> HerculeConfig:

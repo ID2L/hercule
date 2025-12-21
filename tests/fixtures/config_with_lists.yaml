@@ -1,0 +1,21 @@
+# Configuration test with list values for hyperparameters
+
+name: "list_expansion_test"
+
+environments:
+  - name: "CartPole-v1"
+
+models:
+  - name: "simple_sarsa"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.2
+      - key: "discount_factor"
+        value: 0.8
+      - key: "epsilon"
+        value: [0.1, 0.2, 0.3]
+
+learn_max_epoch: 100
+base_output_dir: "test_outputs"
+
+
