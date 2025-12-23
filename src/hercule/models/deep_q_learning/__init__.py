@@ -37,8 +37,9 @@ class DeepQLearningModelHyperParams(HyperParamsBase):
     epsilon_min: float = Field(default=0.1, description="Minimum epsilon value")
     replay_buffer_size: int = Field(default=10000, description="Size of experience replay buffer")
     batch_size: int = Field(default=32, description="Batch size for experience replay")
-    replay_modulo: int = Field(default=4, description="Number of epochs before experience replay step")
-    target_update_frequency: int = Field(default=1000, description="Number of steps before updating target network")
+    step_modulo: int = Field(
+        default=1, description="Number of steps before performing experience replay (default: 1, every step)"
+    )
     weight_decay: float = Field(default=0.0, description="Weight decay (L2 regularization) for optimizer")
     seed: int = Field(default=42, description="Random seed")
 
@@ -381,7 +382,6 @@ class DeepQLearningModel(RLModel[DeepQLearningModelHyperParams]):
 
                 self._step_count += 1
 
-            if train_mode:
                 obs = next_obs
             else:
                 if isinstance(next_observation, int):
@@ -393,22 +393,19 @@ class DeepQLearningModel(RLModel[DeepQLearningModelHyperParams]):
                         obs = obs.reshape(1)
 
         if train_mode:
-            # Perform experience replay every replay_modulo epochs
             typed_params = self.get_hyperparameters()
+
+            # Perform experience replay every step_modulo steps
+            # (default: every step, as per the 2013 paper)
             if (
-                self._epoch_count % typed_params.replay_modulo == 0
+                self._step_count % typed_params.step_modulo == 0
                 and self._replay_buffer is not None
                 and len(self._replay_buffer) >= typed_params.batch_size
             ):
                 # Perform one training step with experience replay
                 self._train_step()
 
-                # Copy network weights to target network after experience replay
-                if self._target_network is not None and self._q_network is not None:
-                    self._target_network.load_state_dict(self._q_network.state_dict())
-
-            # Update target network periodically (alternative to epoch-based update)
-            if self._step_count % typed_params.target_update_frequency == 0:
+                # Update target network after each replay (every step_modulo steps)
                 if self._target_network is not None and self._q_network is not None:
                     self._target_network.load_state_dict(self._q_network.state_dict())
 
