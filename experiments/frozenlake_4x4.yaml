@@ -1,0 +1,62 @@
+# Configuration pour tester Simple Q-Learning et Deep Q-Learning sur FrozenLake 8x8 avec grille d'hyperparamètres
+
+# Configuration name
+name: "frozenlake_4x4"
+
+environments:
+  # FrozenLake 8x8 avec glissement (slippery)
+  - name: "FrozenLake-v1"
+    hyperparameters:
+      - key: "map_name"
+        value: "4x4"
+      - key: "is_slippery"
+        value: true
+      - key: "max_episode_steps"
+        value: 200
+
+models:
+  # Simple Q-Learning avec variations d'hyperparamètres
+  - name: "simple_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: [0.1, 0.2, 0.3]
+      - key: "discount_factor"
+        value: [0.9, 0.95, 0.99]
+      - key: "epsilon"
+        value: 1.0
+      - key: "epsilon_decay"
+        value: 0.005
+      - key: "epsilon_min"
+        value: [0.0, 0.01, 0.05]
+      - key: "seed"
+        value: 42
+
+  # Deep Q-Learning avec variations d'hyperparamètres
+  - name: "deep_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: [0.0001, 0.00025, 0.001]
+      - key: "discount_factor"
+        value: [0.95, 0.99, 0.999]
+      - key: "epsilon"
+        value: 1.0
+      - key: "epsilon_decay"
+        value: 0.0005
+      - key: "epsilon_min"
+        value: [0.01, 0.1, 0.2]
+      - key: "replay_buffer_size"
+        value: [5000, 10000]
+      - key: "batch_size"
+        value: [32, 64]
+      - key: "step_modulo"
+        value: 1
+      - key: "seed"
+        value: 42
+
+# Nombre maximum d'itérations d'entraînement
+learn_max_epoch: 5000
+# Sauvegarder le modèle tous les N epochs
+save_every_n_epoch: 250
+# Répertoire de sortie
+base_output_dir: "outputs"
+
