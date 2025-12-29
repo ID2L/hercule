@@ -373,7 +373,7 @@ class TDModel(RLModel[TDModelHyperParams], ABC):
             KeyError: If required keys are missing from model_data
         """
         # Convert Q-table back from JSON format
-        self.q_table = np.array(model_data["q_table"])
+        self._q_table = np.array(model_data["q_table"])
 
         logger.info(f"Loaded {self.model_name} model from dictionary")
 
