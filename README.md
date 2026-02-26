@@ -1,231 +1,188 @@
-# hercule
+# Hercule
 
-A Python project created with pyscaf
+A reinforcement learning framework for exploring, implementing, and
+benchmarking RL algorithms in batch against collections of
+[Gymnasium](https://gymnasium.farama.org/) environments.
 
-## Poetry Integration
+## Motivation
 
-This project uses Poetry for dependency management and packaging. Poetry provides a modern and efficient way to manage Python dependencies and build packages.
+Hercule provides a **generic, configuration-driven** approach to RL
+experimentation. Define your models and environments in a single YAML file,
+and the framework handles:
 
-### Features
+- Cartesian product of (models × environments × hyperparameter variants)
+- Training and evaluation loops
+- Model persistence and checkpoint resumption
+- Automated comparative report generation
 
-- **Dependency Management**: Poetry manages project dependencies through `pyproject.toml`
-- **Virtual Environment**: Automatically creates and manages a virtual environment
-- **Build System**: Integrated build system for creating Python packages
-- **Lock File**: Generates a `poetry.lock` file for reproducible installations
+## Quick Start
 
-### Common Commands
+### Prerequisites
+
+- Python 3.10+
+- [Poetry](https://python-poetry.org/) 2.x
+
+### Installation
 
 ```bash
-# Install dependencies
+poetry install
+```
+
+### Run an Experiment
+
+```bash
+# Train all model × environment combinations defined in the config
+poetry run hercule learn experiments/simple_games.yaml
+
+# Generate analysis report
+poetry run hercule report outputs/<experiment_name>
+
+# Interactively play a trained model
+poetry run hercule play outputs/.../model.json outputs/.../environment.json
+```
+
+## Configuration
+
+Experiments are fully described by a YAML configuration file:
+
+```yaml
+name: frozenlake_benchmark
+environments:
+  - "CartPole-v1"
+  - name: "FrozenLake-v1"
+    hyperparameters:
+      - key: "is_slippery"
+        value: false
+      - key: "map_name"
+        value: "4x4"
+models:
+  - name: "simple_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: [0.01, 0.05, 0.1]    # list values produce variants
+      - key: "discount_factor"
+        value: 0.95
+  - name: "simple_sarsa"
+  - name: "deep_q_learning"
+learn_max_epoch: 5000
+test_epoch: 100
+save_every_n_epoch: 1000
+```
+
+List-valued hyperparameters are expanded via Cartesian product, so the
+configuration above produces **3 variants** of Q-Learning (one per learning
+rate) plus one SARSA and one DQN, each trained on both environments.
+
+## Architecture
+
+```text
+src/hercule/
+├── config/           # YAML parsing, Pydantic V2 models, ParameterValue type
+├── environnements/   # Gymnasium registry, factory, inspector, manager
+├── models/           # RLModel base class + algorithm sub-packages
+│   ├── td_models/    #   └─ TDModel (tabular TD base)
+│   ├── simple_q_learning/
+│   ├── simple_sarsa/
+│   ├── deep_q_learning/
+│   └── dummy/
+├── run/              # Runner (train/test loop), result persistence
+├── supervisor/       # Orchestrates learn & test phases
+├── controller/       # Business-logic entry points
+├── reports/          # Jinja2-based report generation
+└── cli/              # Click CLI
+```
+
+### Class Hierarchy
+
+All RL algorithms inherit from a common abstract base class:
+
+```text
+RLModel (ABC, Generic[HyperParamsType])
+├── TDModel (tabular TD algorithms with Q-table)
+│   ├── SimpleQLearningModel   (off-policy TD)
+│   └── SimpleSarsaModel       (on-policy TD)
+├── DeepQLearningModel         (DQN with neural network)
+└── DummyModel                 (random baseline)
+```
+
+**`RLModel`** defines the full algorithm lifecycle:
+
+| Method             | Type       | Purpose                                  |
+|--------------------|------------|------------------------------------------|
+| `configure()`      | virtual    | Bind environment + hyperparameters       |
+| `act()`            | abstract   | Select action given observation          |
+| `run_epoch()`      | abstract   | Run one episode (train or eval)          |
+| `predict()`        | abstract   | Inference-mode action selection          |
+| `_export()`        | abstract   | Serialize model state to dict            |
+| `_import()`        | abstract   | Deserialize model state from dict        |
+| `save()` / `load()`| final     | JSON persistence (delegates to export/import) |
+| `evaluate()`       | concrete   | Multi-episode evaluation with metrics    |
+
+**`TDModel`** adds Q-table management and epsilon-greedy exploration. Concrete
+TD algorithms only need to implement `update()`.
+
+### Adding a New Algorithm
+
+1. Create `src/hercule/models/<name>/__init__.py`
+2. Subclass `RLModel` (or `TDModel`), set `model_name` and `hyperparams_class`
+3. Implement the abstract methods
+4. Done — auto-discovered at runtime, no registration needed
+
+## Available Algorithms
+
+| Name                 | Class                    | Type          | Description                    |
+|----------------------|--------------------------|---------------|--------------------------------|
+| `simple_q_learning`  | `SimpleQLearningModel`   | Tabular TD    | Off-policy Q-Learning          |
+| `simple_sarsa`       | `SimpleSarsaModel`       | Tabular TD    | On-policy SARSA                |
+| `deep_q_learning`    | `DeepQLearningModel`     | Deep RL       | DQN (Mnih et al., 2013)        |
+| `dummy`              | `DummyModel`             | Baseline      | Random action selection         |
+
+## CLI Reference
+
+| Command                                          | Description                              |
+|--------------------------------------------------|------------------------------------------|
+| `hercule learn <config.yaml> [-o dir] [-v]`      | Train and evaluate all combinations      |
+| `hercule play <model.json> <env.json> [--no-render]` | Interactive visual playback         |
+| `hercule report <experiment_dir> [-o path]`      | Generate Jupytext analysis report        |
+
+## Development
+
+```bash
+# Install with dev dependencies
 poetry install
 
-# Add a new dependency
-poetry add package-name
+# Run tests
+poetry run pytest
 
-# Add a development dependency
-poetry add --dev package-name
+# Lint
+poetry run ruff check .
 
-# Update dependencies
-poetry update
+# Format
+poetry run ruff format .
 
-# Run a command within the virtual environment
-poetry run python script.py
-
-# Activate the virtual environment
-poetry shell
-```
-
-### Project Structure
-
-The project follows a standard Python package structure:
-- `pyproject.toml`: Project configuration and dependencies
-- `poetry.lock`: Locked dependencies for reproducible builds
-- `src/`: Source code directory
-- `tests/`: Test files directory
-
-### Development
-
-To start developing:
-1. Ensure Poetry is installed
-2. Run `poetry install` to install all dependencies
-3. Use `poetry shell` to activate the virtual environment
-4. Start coding!
-
-For more information, visit [Poetry's official documentation](https://python-poetry.org/docs/).
-
-## Ruff Integration
-
-Ruff is an extremely fast Python linter and code formatter, written in Rust. It can replace Flake8, Black, isort, pyupgrade, and more, while being much faster than any individual tool.
-
-### VSCode Default Configuration
-
-The file `.vscode/default_settings.json` provides a recommended configuration for using Ruff in VSCode:
-
-```json
-{
-    "[python]": {
-      "editor.formatOnSave": true,
-      "editor.codeActionsOnSave": {
-        "source.fixAll": "explicit",
-        "source.organizeImports": "explicit"
-      },
-      "editor.defaultFormatter": "charliermarsh.ruff"
-    },
-    "notebook.formatOnSave.enabled": true,
-    "notebook.codeActionsOnSave": {
-      "notebook.source.fixAll": "explicit",
-      "notebook.source.organizeImports": "explicit"
-    },
-    "ruff.lineLength": 88
-}
-```
-
-#### Explanation of each line:
-- `editor.formatOnSave`: Enables automatic formatting on save for all files.
-- `[python].editor.defaultFormatter`: Sets Ruff as the default formatter for Python files.
-- `[python]editor.codeActionsOnSave.source.organizeImports`: Organizes Python imports automatically on save.
-- `[python]editor.codeActionsOnSave.source.fixAll`: Applies all available code fixes (including linting) on save.
-- `ruff.lineLength`: Line length for your python files
-
-### Useful Ruff Commands
-
-You can run the following commands commands directly in the shell
-
-```bash
-# Lint all Python files in the current directory
-ruff check .
-
-# Format all Python files in the current directory
-ruff format .
-
-# Automatically fix all auto-fixable problems
-ruff check . --fix
-```
-
-For more information, see the [official Ruff VSCode extension documentation](https://github.com/astral-sh/ruff-vscode) and the [Ruff documentation](https://docs.astral.sh/ruff/). 
-
-You can enable specific rules over a catalog of over 800+ rules, depending on your needs or framework of choice. Check it out at the [Ruff documentation](docs.astral.sh/ruff/rules/). 
-
-## Documentation
-
-This action uses [pdoc](https://pdoc.dev/) to generate and serve documentation for your Python project.
-
-### Configuration
-
-The documentation configuration is managed in your `pyproject.toml` file:
-
-```toml
-[tool.pyscaf.documentation]
-output_path = "docs"
-
-[tool.pyscaf.documentation.pdoc]
-# pdoc arguments are automatically converted to CLI arguments
-# Boolean values: true -> --flag, false -> --no-flag
-# Lists: ["value1", "value2"] -> --flag value1 --flag value2
-# Strings: "value" -> --flag value
-```
-
-### Scripts
-
-Two scripts are available to manage documentation. Both scripts use the configuration defined in the `[tool.pyscaf.documentation.pdoc]`:
-
-#### `gen-doc`
-
-Generates static documentation files to the directory specified in `tool.pyscaf.documentation.output_path`.
-
-```bash
+# Generate API documentation
 poetry run gen-doc
-```
 
-#### `serve-doc`
-
-Starts a local documentation server for interactive browsing.
-
-```bash
+# Serve documentation locally
 poetry run serve-doc
 ```
 
-### pdoc Arguments
+### Code Standards
 
-All arguments in the `[tool.pyscaf.documentation.pdoc]` section are automatically converted to pdoc CLI arguments:
+- Python 3.10+ with modern type union syntax (`X | Y`)
+- Pydantic V2 with `@field_validator`
+- Ruff linter (line length: 120)
+- Docstrings on all public classes and functions
+- All code, comments, and error messages in English
 
-- Boolean values: `true` becomes `--flag`, `false` becomes `--no-flag`
-- Lists: `["value1", "value2"]` becomes `--flag value1 --flag value2`
-- Strings: `"value"` becomes `--flag value`
+## Project Governance
 
-`output` argument is droped, as the behaviour to write instead of serve depends on the script use.
+The project is governed by a constitution at `.specify/memory/constitution.md`.
+Key rule: **any modification to a root class (`RLModel`, `TDModel`,
+`BaseConfig`, `HyperParamsBase`, `HerculeConfig`, `EpochResult`, `Runner`,
+`Supervisor`) MUST trigger a review of the constitution**. See `AGENTS.md`
+for detailed development guidance.
 
-For example:
-```toml
-[tool.pyscaf.documentation.pdoc]
-html = true
-show_source = false
-template_directory = "custom_templates"
-external_links = ["https://example.com"]
-```
+## License
 
-Becomes:
-```bash
-pdoc --html --no-show-source --template-directory custom_templates --external-links https://example.com
-``` 
-## Git Integration
-
-This project uses Git for version control, providing a robust system for tracking changes, collaborating, and managing code history.
-
-### Features
-
-- **Version Control**: Track changes and manage code history
-- **Branching**: Create and manage feature branches
-- **Collaboration**: Work with remote repositories
-- **Git Hooks**: Automated scripts for repository events
-
-### Common Commands
-
-```bash
-# Initialize repository
-git init
-
-# Clone repository
-git clone <repository-url>
-
-# Create and switch to new branch
-git checkout -b feature-name
-
-# Stage changes
-git add .
-
-# Commit changes
-git commit -m "commit message"
-
-# Push changes
-git push origin branch-name
-
-# Pull latest changes
-git pull origin branch-name
-```
-
-### Project Structure
-
-The project includes:
-- `.git/`: Git repository data
-- `.gitignore`: Specifies intentionally untracked files
-- `.gitattributes`: Defines attributes for paths
-- `hooks/`: Custom Git hooks (if present)
-
-### Development Workflow
-
-1. Create a new branch for features/fixes
-2. Make changes and commit regularly
-3. Push changes to remote repository
-4. Create pull requests for code review
-5. Merge approved changes to main branch
-
-### Best Practices
-
-- Write clear commit messages
-- Keep commits focused and atomic
-- Use meaningful branch names
-- Regularly pull from main branch
-- Review changes before committing
-
-For more information, visit [Git's official documentation](https://git-scm.com/doc). 
+See [LICENSE](LICENSE) for details.
