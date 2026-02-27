@@ -8,42 +8,32 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "gymnasium[toy-text] (>=1.2.0,<2.0.0)",
+    "gymnasium[toy-text]>=1.2.0,<2.0.0",
     "click>=8.0.0",
     "pyyaml>=6.0",
     "numpy>=1.24.0",
     "pydantic>=2.0.0",
-    "jinja2 (>=3.1.6,<4.0.0)",
-    "matplotlib (>=3.10.6,<4.0.0)",
-    "pandas (>=2.3.2,<3.0.0)",
+    "jinja2>=3.1.6,<4.0.0",
+    "matplotlib>=3.10.6,<4.0.0",
+    "pandas>=2.3.2,<3.0.0",
     "torch>=2.0.0",
 ]
 
-[build-system]
-requires = [
-    "poetry-core>=2.0.0,<3.0.0",
-]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
-packages = [
-    { include = "hercule", from = "src" },
-]
-
-[tool.poetry.group.dev.dependencies]
-pdoc = "*"
-tomli = "*"
-pytest = "*"
-pytest-cov = "*"
-ipykernel = "^7.1.0"
-
-[tool.poetry.scripts]
+[project.scripts]
 hercule = "hercule.cli:cli"
-gen-doc = "pyscaf.documentation.scripts.parse_doc:gen_doc"
-serve-doc = "pyscaf.documentation.scripts.parse_doc:serve_doc"
 
-[tool.pyscaf.documentation]
-output_path = "docs"
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pdoc",
+    "tomli",
+    "pytest",
+    "pytest-cov",
+    "ipykernel>=7.1.0,<8.0.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -100,4 +90,3 @@ ban-relative-imports = "parents"  # Interdit les imports relatifs vers les paren
 "src.hercule.environnements".msg = "Use 'hercule.environnements' instead for consistency"
 "src.hercule.models".msg = "Use 'hercule.models' instead for consistency"
 "src.hercule.run".msg = "Use 'hercule.run' instead for consistency"
-
