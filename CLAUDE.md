@@ -35,9 +35,14 @@ uv run pytest tests/config/test_config_expansion.py::TestConfigExpansion::test_e
 uv run pytest -m "not slow"              # markers: slow, integration, unit (--strict-markers is on)
 
 ruff check . --fix && ruff format .      # line-length 120
-uv run gen-doc                           # pdoc -> docs/
+uv run gen-doc                           # pdoc -> docs/ (git-ignored; do not commit)
 uv run serve-doc
 ```
+
+`docs/` is generated output and is git-ignored. The API reference is published to
+<https://id2l.github.io/hercule/> by `.github/workflows/docs.yml` on every push to `main`
+(`gh workflow run docs.yml` to republish). Pull requests build it as a check but never publish — a PR that
+breaks `gen-doc` fails there, so keep modules importable.
 
 Ready-made configs live in `experiments/`; results land in `outputs/`.
 
