@@ -110,7 +110,9 @@ Everything else (Q-table init, epsilon-greedy, serialisation) is handled by
 - **Linter**: Ruff (B, C4, E, F, N, W, I, UP, TID, TC, PLC, PLE, PLW),
   line length 120.
 - **Imports**: absolute from `hercule.*`, no relative parent imports.
-- **Tests**: run via `poetry run pytest` (test files in `tests/`).
+- **Tests**: run via `uv run pytest` (test files in `tests/`).
+- **Toolchain**: uv manages dependencies and the `.venv/`; prefix every command
+  with `uv run` (`uv sync` to install, `uv add` / `uv remove` to change deps).
 
 ## Configuration System
 

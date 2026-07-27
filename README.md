@@ -20,25 +20,28 @@ and the framework handles:
 ### Prerequisites
 
 - Python 3.10+
-- [Poetry](https://python-poetry.org/) 2.x
+- [uv](https://docs.astral.sh/uv/) 0.5+
 
 ### Installation
 
 ```bash
-poetry install
+uv sync
 ```
+
+This creates the virtual environment in `.venv/` and installs the main and dev
+dependencies from `uv.lock`.
 
 ### Run an Experiment
 
 ```bash
 # Train all model × environment combinations defined in the config
-poetry run hercule learn experiments/simple_games.yaml
+uv run hercule learn experiments/simple_games.yaml
 
 # Generate analysis report
-poetry run hercule report outputs/<experiment_name>
+uv run hercule report outputs/<experiment_name>
 
 # Interactively play a trained model
-poetry run hercule play outputs/.../model.json outputs/.../environment.json
+uv run hercule play outputs/.../model.json outputs/.../environment.json
 ```
 
 ## Configuration
@@ -148,23 +151,32 @@ TD algorithms only need to implement `update()`.
 ## Development
 
 ```bash
-# Install with dev dependencies
-poetry install
+# Install with dev dependencies (default-groups = "all")
+uv sync
 
 # Run tests
-poetry run pytest
+uv run pytest
 
 # Lint
-poetry run ruff check .
+uv run ruff check .
 
 # Format
-poetry run ruff format .
+uv run ruff format .
 
 # Generate API documentation
-poetry run gen-doc
+uv run gen-doc
 
 # Serve documentation locally
-poetry run serve-doc
+uv run serve-doc
+```
+
+### Dependency Management
+
+```bash
+uv add <package>            # add a runtime dependency
+uv add --dev <package>      # add a development dependency
+uv remove <package>         # remove a dependency
+uv lock                     # refresh uv.lock
 ```
 
 ### Code Standards
