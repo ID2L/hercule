@@ -24,8 +24,8 @@ def load_documentation_config(pyproject_path: Path) -> dict:
     return pyproject.get("tool", {}).get("pyscaf", {}).get("documentation", {})
 
 
-def get_poetry_package_paths() -> list:
-    """Extract package paths from Poetry configuration."""
+def get_package_paths() -> list:
+    """Extract package paths from pyscaf documentation configuration."""
     pyproject_path = Path("pyproject.toml")
     if not pyproject_path.exists():
         return []
@@ -33,22 +33,8 @@ def get_poetry_package_paths() -> list:
     with pyproject_path.open("rb") as f:
         pyproject = tomli.load(f)
 
-    packages = pyproject.get("tool", {}).get("poetry", {}).get("packages", [])
-    paths = []
-
-    for package in packages:
-        if isinstance(package, dict):
-            include = package.get("include")
-            from_dir = package.get("from", "")
-
-            if include:
-                if from_dir:
-                    path = f"{from_dir}/{include}"
-                else:
-                    path = include
-                paths.append(path)
-
-    return paths
+    paths = pyproject.get("tool", {}).get("pyscaf", {}).get("documentation", {}).get("package_paths", [])
+    return paths if isinstance(paths, list) else []
 
 
 def config_to_pdoc_args(config: dict) -> list:
@@ -88,8 +74,8 @@ def serve_doc():
     if "modules" in config:
         del config["modules"]
 
-    # Add Poetry package paths as positional arguments
-    package_paths = get_poetry_package_paths()
+    # Add package paths as positional arguments
+    package_paths = get_package_paths()
     args.extend(package_paths)
 
     cmd = [sys.executable, "-m", "pdoc"] + args
@@ -127,8 +113,8 @@ def gen_doc():
         elif isinstance(modules, list):
             args.extend(modules)
 
-    # Add Poetry package paths as positional arguments
-    package_paths = get_poetry_package_paths()
+    # Add package paths as positional arguments
+    package_paths = get_package_paths()
     args.extend(package_paths)
 
     cmd = [sys.executable, "-m", "pdoc"] + args
