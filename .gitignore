@@ -1,4 +1,8 @@
+# Experiment results
 outputs/
+
+# Generated API documentation (pdoc output, published to GitHub Pages by CI)
+docs/
 
 # Python
 **/__pycache__/

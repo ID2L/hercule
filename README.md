@@ -4,6 +4,9 @@ A reinforcement learning framework for exploring, implementing, and
 benchmarking RL algorithms in batch against collections of
 [Gymnasium](https://gymnasium.farama.org/) environments.
 
+📖 **[API documentation](https://id2l.github.io/hercule/)** — generated from the
+source on every change to `main`.
+
 ## Motivation
 
 Hercule provides a **generic, configuration-driven** approach to RL
@@ -178,6 +181,25 @@ uv add --dev <package>      # add a development dependency
 uv remove <package>         # remove a dependency
 uv lock                     # refresh uv.lock
 ```
+
+### Documentation
+
+The API reference is published automatically to
+[GitHub Pages](https://id2l.github.io/hercule/) by `.github/workflows/docs.yml` on
+every push to `main`, and can be republished on demand with
+`gh workflow run docs.yml`. Pull requests build the documentation as a check but
+never publish.
+
+`uv run gen-doc` writes to `docs/`, which is **git-ignored** — generated output is
+never committed.
+
+On a fresh fork, enable Pages once (requires admin rights):
+
+```bash
+gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow
+```
+
+Equivalent in the UI: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ### Code Standards
 

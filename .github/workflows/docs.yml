@@ -1,0 +1,81 @@
+name: Documentation
+
+# Builds the pdoc API reference for every change and publishes it to GitHub Pages
+# from the default branch. Pull requests build only — they never publish.
+# Contract: specs/003-github-pages-docs/contracts/workflow-contract.md
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; the deploy job widens this for itself only.
+permissions:
+  contents: read
+
+env:
+  # MUST match [tool.pyscaf.documentation].output_path in pyproject.toml.
+  # The guard step below fails loudly if the two ever drift apart.
+  DOCS_DIR: docs
+
+jobs:
+  build:
+    name: Build API documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install the locked environment
+        # --frozen installs strictly from uv.lock and fails on drift.
+        # The dev group (which carries pdoc) comes in via default-groups = "all".
+        run: uv sync --frozen
+
+      - name: Generate the documentation
+        # Same command a contributor runs locally, so published and local output cannot diverge.
+        run: uv run gen-doc
+
+      - name: Verify the documentation was produced
+        run: |
+          if [ ! -d "$DOCS_DIR" ] || [ -z "$(ls -A "$DOCS_DIR")" ]; then
+            echo "::error::'$DOCS_DIR' is missing or empty after 'uv run gen-doc'. Check that [tool.pyscaf.documentation].output_path in pyproject.toml matches the DOCS_DIR env var in this workflow."
+            exit 1
+          fi
+          echo "Generated $(find "$DOCS_DIR" -type f | wc -l) files in '$DOCS_DIR'."
+
+      - name: Upload the Pages artifact
+        # Pull requests validate the build but must not produce anything publishable.
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: ${{ env.DOCS_DIR }}
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    # Second, independent barrier against publishing from a pull request (incl. forks).
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # Let an in-flight deployment finish; queued runs are superseded by the newest,
+    # so the published state always matches the most recent commit.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5.0.0
