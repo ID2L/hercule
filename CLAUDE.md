@@ -34,7 +34,7 @@ uv run pytest                            # 50 tests, ~25s
 uv run pytest tests/config/test_config_expansion.py::TestConfigExpansion::test_expand_model_variants
 uv run pytest -m "not slow"              # markers: slow, integration, unit (--strict-markers is on)
 
-ruff check . --fix && ruff format .      # line-length 120
+uvx ruff check . --fix && uvx ruff format .   # line-length 120; ruff is NOT a project dependency
 uv run gen-doc                           # pdoc -> docs/ (git-ignored; do not commit)
 uv run serve-doc
 ```

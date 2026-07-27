@@ -161,10 +161,10 @@ uv sync
 uv run pytest
 
 # Lint
-uv run ruff check .
+uvx ruff check .
 
 # Format
-uv run ruff format .
+uvx ruff format .
 
 # Generate API documentation
 uv run gen-doc
