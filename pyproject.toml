@@ -2,11 +2,17 @@
 name = "hercule"
 version = "0.1.0"
 description = ""
-authors = [
-    { name = "guilhem.heinrich", email = "guilhem.heinrich@gmail.com" },
-]
-readme = "README.md"
+authors = [{ name = "guilhem.heinrich", email = "guilhem.heinrich@gmail.com" }]
 requires-python = ">=3.10"
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = [
     "gymnasium[toy-text] (>=1.2.0,<2.0.0)",
     "click>=8.0.0",
@@ -19,31 +25,40 @@ dependencies = [
     "torch>=2.0.0",
 ]
 
-[build-system]
-requires = [
-    "poetry-core>=2.0.0,<3.0.0",
-]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
-packages = [
-    { include = "hercule", from = "src" },
-]
-
-[tool.poetry.group.dev.dependencies]
-pdoc = "*"
-tomli = "*"
-pytest = "*"
-pytest-cov = "*"
-ipykernel = "^7.1.0"
-
-[tool.poetry.scripts]
+[project.scripts]
 hercule = "hercule.cli:cli"
 gen-doc = "pyscaf.documentation.scripts.parse_doc:gen_doc"
 serve-doc = "pyscaf.documentation.scripts.parse_doc:serve_doc"
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pdoc",
+    "tomli",
+    "pytest",
+    "pytest-cov",
+    "ipykernel>=7.1.0,<8",
+]
+
+[tool.uv]
+default-groups = "all"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/hercule", "pyscaf"]
+
+[tool.hatch.build.targets.wheel]
+include = ["src/hercule", "pyscaf"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/hercule" = "hercule"
+"pyscaf" = "pyscaf"
+
 [tool.pyscaf.documentation]
 output_path = "docs"
+package_paths = ["src/hercule"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
