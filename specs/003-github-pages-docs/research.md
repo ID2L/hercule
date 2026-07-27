@@ -170,7 +170,42 @@ convention.
 **Verification required at implementation time**: confirm `git ls-files docs` is empty before ignoring, so no
 tracked file is accidentally masked.
 
+## D-010 — Verification record (added during implementation, 2026-07-28)
+
+**Decision**: record which rows of the failure-semantics table in `contracts/workflow-contract.md` §6 were
+exercised for real, and which are reasoned from the mechanism, so the distinction is not lost.
+
+| Contract §6 row | Status | Evidence |
+|-----------------|--------|----------|
+| `gen-doc` raises (import error) | **Exercised** | Temporary `import nonexistent_module` pushed to the PR branch: run 30315268159 failed at *Generate the documentation*, the guard, upload, and deploy steps were skipped, no deployment was created |
+| Pull request builds but never publishes | **Exercised** | Run 30315107496 (PR #1): upload and deploy steps skipped; `deployments` count stayed at 0 |
+| Guard fails on empty/missing output | **Reasoned** | Not exercised — would require temporarily desynchronising `output_path`. The step is a plain `[ ! -d ] || [ -z "$(ls -A)" ]` test that runs before any upload |
+| Dependency install fails (stale `uv.lock`) | **Reasoned** | Not exercised — `uv lock --check` was green throughout. `--frozen` is documented to fail rather than re-resolve |
+| Pages not activated | **Not observed** | Pages was activated (T011) before the first merge, exactly as the quickstart prescribes, so the error path never triggered |
+| Deploy fails mid-flight | **Not observed** | All three deployments succeeded |
+
+**No divergence found** between the contract and observed behaviour.
+
+**Measured performance** (supersedes the estimate in D-004):
+
+- Cold cache, full torch stack: build **2 min 19 s**.
+- Warm cache: build **72 s**; push-to-live **≈ 1 min 30 s** — well inside the 10-minute SC-001 budget.
+- The uv cache absorbs the torch download as predicted; no runner disk or time pressure observed.
+
+## D-011 — `ruff` is not installed (found during implementation)
+
+**Finding**: `uv run ruff check .` fails with `program not found`. Ruff is absent from `[dependency-groups].dev`
+in `pyproject.toml`, even though the constitution (principle V) names it the project's single linter/formatter
+and both `README.md` and `AGENTS.md` advertised the command.
+
+**Decision taken here**: correct the documented command to `uvx ruff check .` / `uvx ruff format .`, which runs
+Ruff as an ephemeral tool and needs no dependency change. Verified working (`ruff 0.16.0`).
+
+**Deliberately not done**: adding `ruff` to the dev dependency group. That would modify `pyproject.toml` and
+`uv.lock` for every developer, which is outside the scope of a documentation-publication feature. Recommended
+as a small follow-up so the linter version is pinned rather than floating with `uvx`.
+
 ## Open questions
 
 None. No `NEEDS CLARIFICATION` remained after the specification phase, and no new unknown surfaced during
-research.
+research. Two findings surfaced during implementation and are recorded above as D-010 and D-011.
