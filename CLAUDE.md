@@ -160,6 +160,10 @@ parent directory → recursive search (`MAX_DEPTH`), grouped by environment+env-
 - Model persistence is JSON, so `save_every_n_epoch` on a large DQN writes big files; tune it per experiment.
 - The repo is **Ruff-clean** as of 2026-07-28 (`check` and `format --check` both pass). Keep it that way: a new
   violation is yours. Note `ruff format` also reformats Python snippets inside `.md` files.
+- CLI output is emoji-heavy (`🎯 📊 ✅ …`). `harden_output_streams()` in `cli/main.py` runs from the group
+  callback to keep that safe on non-UTF-8 streams — without it every command died with `UnicodeEncodeError` on
+  its first message under a cp1252 stdout. If you add a new entry point that prints markers without going
+  through the `cli` group, call it there too.
 - `EpochResult` in `reports/` and `Path` in `controller/` live in `TYPE_CHECKING` blocks. That is safe *because*
   they appear only in annotations that are never evaluated at runtime (method-body attribute annotations, and
   `controller` has `from __future__ import annotations`). Do not move a name used by a **Pydantic** field

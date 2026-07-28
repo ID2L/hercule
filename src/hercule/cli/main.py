@@ -1,12 +1,44 @@
 """Main CLI entry point for Hercule RL framework."""
 
 import logging
+import sys
 from functools import wraps
 from pathlib import Path
 
 import click
 
 from hercule.controller import CancellationToken, generate_experiment_report, play_interactive, run_learning
+
+
+def harden_output_streams() -> None:
+    """
+    Make the CLI's decorative output safe on streams that cannot encode it.
+
+    The commands print emoji status markers. On Windows the default stream encoding is
+    the legacy code page (cp1252 for instance), which cannot encode them: without this,
+    every command dies with UnicodeEncodeError on its first message, before doing any
+    work. `hercule learn` would lose an entire training run to a decorative character.
+    The same applies on any platform when output is redirected to a pipe or a file and
+    the preferred encoding is not UTF-8.
+
+    Redirected output is switched to UTF-8, which is always correct for a file or pipe.
+    Interactive consoles keep their encoding and only gain an error handler, so glyphs
+    they cannot represent degrade to "?" instead of turning the whole output into
+    mojibake.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            # Stream replaced by a test runner or not a text stream: nothing to harden.
+            continue
+        try:
+            if stream.isatty():
+                reconfigure(errors="replace")
+            else:
+                reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            # A stream that refuses reconfiguration is left as-is; never fail on startup.
+            continue
 
 
 def configure_logging(verbose: int) -> logging.Logger:
@@ -42,6 +74,7 @@ def cli(ctx) -> None:
 
     A reinforcement learning framework for training and playing with RL agents.
     """
+    harden_output_streams()
     ctx.ensure_object(dict)
 
 
