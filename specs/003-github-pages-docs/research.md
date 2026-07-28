@@ -216,8 +216,20 @@ be judged against this baseline rather than against zero:
 | `UP035` deprecated-import | 2 | `W293` blank-line-with-whitespace | 1 |
 
 27 errors total (2 auto-fixable), 15 of them in `src/hercule/reports/__init__.py`; `ruff format --check .`
-reports 5 files needing reformatting. Cleaning this debt is deliberately left out of feature 003 — it would mix
-a formatting sweep into an infrastructure change and touch files this feature has no business editing.
+reported 5 files needing reformatting.
+
+**Baseline cleared (2026-07-28, follow-up at the maintainer's request)**: all 27 violations were fixed by hand
+rather than with `--fix --unsafe-fixes`, because two of the rules are not mechanically safe:
+
+- `TC001`/`TC003` (move an import into `TYPE_CHECKING`) breaks at runtime whenever the name is used in an
+  annotation that *is* evaluated — a Pydantic field, for instance. Verified empirically that the two cases here
+  (`EpochResult` in `reports`, `Path` in `controller`) are annotation-only and unevaluated before moving them.
+- `PLC0415` (import outside top-level) is sometimes deliberate, to break an import cycle. Each of the 10 cases
+  was checked; none existed for that reason, so all were hoisted.
+
+`ruff check .` and `ruff format --check .` both pass. Verified beyond the linter: 50 tests green, all 15 modules
+import, and the individual **and** comparative report paths regenerated for real (10 000 learning epochs loaded,
+248 KB of base64 plots produced) since `reports/` took most of the edits.
 
 ## Open questions
 

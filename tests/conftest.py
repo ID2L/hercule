@@ -1,5 +1,7 @@
 """Global test configuration and fixtures."""
 
+import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -25,8 +27,6 @@ def temp_test_dir():
     yield temp_path
 
     # Cleanup: remove temporary directory
-    import shutil
-
     if temp_path.exists():
         shutil.rmtree(temp_path)
 
@@ -45,8 +45,6 @@ def change_to_temp_dir(temp_test_dir):
     Yields:
         Path: Path to the temporary directory (same as temp_test_dir)
     """
-    import os
-
     original_cwd = Path.cwd()
 
     # Change to temporary directory

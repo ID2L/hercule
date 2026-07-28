@@ -1,7 +1,6 @@
 """Dummy model implementation for testing purposes."""
 
 import logging
-from pathlib import Path
 from typing import ClassVar
 
 import gymnasium as gym

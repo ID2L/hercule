@@ -62,14 +62,14 @@ hyperparameters = {
     "epsilon": 0.1,
     "epsilon_decay": 0.005,  # Decay 0.5% of epsilon per step
     "epsilon_min": 0.01,
-    "seed": 42
+    "seed": 42,
 }
 
 # Or use no decay (epsilon stays constant)
 no_decay_hyperparameters = {
     "epsilon": 0.1,
     "epsilon_decay": 0.0,  # No decay
-    "epsilon_min": 0.0
+    "epsilon_min": 0.0,
 }
 
 model.configure(env, hyperparameters)

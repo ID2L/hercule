@@ -158,8 +158,10 @@ parent directory → recursive search (`MAX_DEPTH`), grouped by environment+env-
 - `EnvironmentManager.load_environment()` still contains debug `print()` calls; `Supervisor` bypasses that class
   and uses `EnvironmentFactory` directly.
 - Model persistence is JSON, so `save_every_n_epoch` on a large DQN writes big files; tune it per experiment.
-- `uv run ruff check .` reports **27 pre-existing violations** (10 `PLC0415` import-outside-top-level, 9 `F401`
-  unused-import, 2 `E501`, 2 `UP035`, plus `B904`/`TC001`/`TC003`/`W293`), 15 of them in
-  `src/hercule/reports/__init__.py`, and `ruff format --check .` flags 5 files. That is existing debt, not
-  something you broke — check the count before and after your change rather than assuming a clean baseline.
+- The repo is **Ruff-clean** as of 2026-07-28 (`check` and `format --check` both pass). Keep it that way: a new
+  violation is yours. Note `ruff format` also reformats Python snippets inside `.md` files.
+- `EpochResult` in `reports/` and `Path` in `controller/` live in `TYPE_CHECKING` blocks. That is safe *because*
+  they appear only in annotations that are never evaluated at runtime (method-body attribute annotations, and
+  `controller` has `from __future__ import annotations`). Do not move a name used by a **Pydantic** field
+  annotation into `TYPE_CHECKING` — Pydantic resolves those at runtime and it will raise.
 - Speckit workflow: feature specs live in `specs/`, commands in `.cursor/commands/speckit.*.md`.

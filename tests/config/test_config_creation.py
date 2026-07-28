@@ -1,5 +1,6 @@
 """Tests for HerculeConfig creation and display functionality."""
 
+import json
 from pathlib import Path
 
 from hercule.config import HerculeConfig, HyperParameter, ModelConfig, RunConfig, load_config_from_yaml
@@ -130,8 +131,6 @@ class TestHerculeConfigRecreation:
         config_str = str(original_config)
 
         # The string should be valid JSON that can be parsed
-        import json
-
         config_dict = json.loads(config_str)
 
         # Recreate the config from the parsed dictionary
@@ -211,8 +210,6 @@ class TestHerculeConfigRecreation:
         )
 
         config_str = str(original_config)
-        import json
-
         config_dict = json.loads(config_str)
 
         recreated_config = HerculeConfig(**config_dict)

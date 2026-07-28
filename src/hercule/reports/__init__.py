@@ -1,21 +1,25 @@
 """Module for generating experiment reports."""
 
+import base64
+import io
 import json
 import logging
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-from jinja2 import Environment, FileSystemLoader, Template
+from jinja2 import Environment, FileSystemLoader
 
+from hercule.config import HyperParameter
 from hercule.environnements import load_environment
 from hercule.models import create_model, model_file_name
-from hercule.models.epoch_result import EpochResult
 from hercule.run import Runner, run_info_file_name
 from hercule.supervisor import environment_file_name
+
+
+if TYPE_CHECKING:
+    from hercule.models.epoch_result import EpochResult
 
 
 logger = logging.getLogger(__name__)
@@ -224,8 +228,6 @@ class ExperimentData:
                                     merged = defaults.copy()
                                     merged.update(hyperparams_from_json)
                                     # Store in model's hyperparameters list
-                                    from hercule.config import HyperParameter
-
                                     model.hyperparameters = [HyperParameter(key=k, value=v) for k, v in merged.items()]
                             else:
                                 # No hyperparameters in JSON, use defaults
@@ -234,8 +236,6 @@ class ExperimentData:
                                 else:
                                     # Store defaults in model's hyperparameters
                                     defaults = model.get_default_hyperparameters()
-                                    from hercule.config import HyperParameter
-
                                     model.hyperparameters = [
                                         HyperParameter(key=k, value=v) for k, v in defaults.items()
                                     ]
@@ -328,7 +328,7 @@ def generate_individual_report(experiment_path: Path, output_path: Path | None =
     # Calculate relative path from report to experiment directory
     # Since report is in the same directory as experiment, relative path is "."
     experiment_relative_path = "."
-    
+
     # Prepare template context
     context = {
         "experiment_path": str(experiment_path),
@@ -444,7 +444,8 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
                     # Generate a readable name from the directory path relative to env_params_dir
                     relative_path = exp_dir.relative_to(env_params_dir)
                     exp_name = str(relative_path).replace("\\", "/")
-                    # Calculate relative path for loading JSON files (use forward slashes for cross-platform compatibility)
+                    # Relative path for loading JSON files
+                    # (forward slashes for cross-platform compatibility)
                     exp_relative_path = str(relative_path).replace("\\", "/")
 
                     experiments.append(
@@ -514,9 +515,6 @@ def create_learning_plots(experiment_data: ExperimentData) -> dict[str, str]:
     Returns:
         Dictionary with plot names and base64 encoded image data
     """
-    import base64
-    import io
-
     plots = {}
 
     # Learning rewards over time

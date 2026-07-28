@@ -8,7 +8,6 @@ from typing import Any
 
 import gymnasium as gym
 import numpy as np
-from gymnasium import Env
 from gymnasium.envs.registration import registry
 from pydantic import BaseModel
 
@@ -189,7 +188,6 @@ class EnvironmentFactory:
         except gym.error.Error as e:
             msg = f"Failed to create environment '{env_name}' (exists in registry but creation failed): {e}"
             raise ValueError(msg) from e
-
 
     def get_or_create_environment(self, env_name: str, **kwargs) -> gym.Env:
         """

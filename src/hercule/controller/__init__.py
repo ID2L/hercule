@@ -11,7 +11,7 @@ import json
 import logging
 import threading
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import gymnasium as gym
 
@@ -20,6 +20,10 @@ from hercule.environnements import load_environment
 from hercule.models import RLModel, create_model
 from hercule.reports import generate_report
 from hercule.supervisor import Supervisor
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 logger = logging.getLogger(__name__)

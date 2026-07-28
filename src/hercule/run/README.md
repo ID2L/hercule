@@ -16,10 +16,7 @@ from hercule.run import TrainingRunner
 
 with TrainingRunner(config) as runner:
     result = runner.run_single_training(
-        model=model,
-        environment_name="Taxi-v3",
-        model_name="simple_sarsa",
-        hyperparameters=hyperparams
+        model=model, environment_name="Taxi-v3", model_name="simple_sarsa", hyperparameters=hyperparams
     )
 ```
 
@@ -34,7 +31,7 @@ result = RunResult(
     model_name="simple_sarsa",
     hyperparameters=hyperparams,
     metrics=training_metrics,
-    success=True
+    success=True,
 )
 ```
 
@@ -53,7 +50,7 @@ with ModelExecutor(env_manager, log_level="INFO") as executor:
         model_name="simple_sarsa",
         num_episodes=10,
         max_steps_per_episode=100,
-        render=False
+        render=False,
     )
 ```
 
@@ -69,7 +66,7 @@ result = ExecutionResult(
     episode_rewards=[-100.0, -150.0, -80.0],
     episode_lengths=[50, 75, 40],
     total_episodes=3,
-    success=True
+    success=True,
 )
 
 # Access computed metrics
@@ -92,11 +89,7 @@ with RunManager(config, log_level="INFO") as manager:
         environment_name="Taxi-v3",
         model_name="simple_sarsa",
         hyperparameters=hyperparams,
-        execution_config={
-            "num_episodes": 10,
-            "max_steps_per_episode": 100,
-            "render": False
-        }
+        execution_config={"num_episodes": 10, "max_steps_per_episode": 100, "render": False},
     )
 ```
 
@@ -128,7 +121,7 @@ hyperparameters = {
     "epsilon": 0.1,
     "epsilon_decay": 0.005,
     "epsilon_min": 0.01,
-    "seed": 42
+    "seed": 42,
 }
 
 # Run training and execution
@@ -138,16 +131,12 @@ with RunManager(config, log_level="INFO") as manager:
         environment_name="Taxi-v3",
         model_name="simple_sarsa",
         hyperparameters=hyperparameters,
-        execution_config={
-            "num_episodes": 10,
-            "max_steps_per_episode": 100,
-            "render": False
-        }
+        execution_config={"num_episodes": 10, "max_steps_per_episode": 100, "render": False},
     )
-    
+
     if training_result.success:
         print(f"Training completed: {training_result.metrics}")
-    
+
     if execution_result and execution_result.success:
         print(f"Execution completed: {execution_result.mean_reward:.2f}")
 ```
@@ -172,9 +161,9 @@ with ModelExecutor(env_manager, log_level="DEBUG") as executor:
         model_name="simple_sarsa",
         num_episodes=5,
         max_steps_per_episode=50,
-        render=False
+        render=False,
     )
-    
+
     print(f"Mean reward: {result.mean_reward:.2f}")
     print(f"Individual rewards: {result.episode_rewards}")
 ```
@@ -190,16 +179,13 @@ with ModelExecutor(env_manager, log_level="INFO") as executor:
         {"num_episodes": 10, "max_steps_per_episode": 100, "render": False},
         {"num_episodes": 3, "max_steps_per_episode": 200, "render": True},
     ]
-    
+
     results = executor.execute_multiple_episodes(
-        model=model,
-        environment_name="Taxi-v3",
-        model_name="simple_sarsa",
-        episode_configs=episode_configs
+        model=model, environment_name="Taxi-v3", model_name="simple_sarsa", episode_configs=episode_configs
     )
-    
+
     for i, result in enumerate(results):
-        print(f"Config {i+1}: {result.mean_reward:.2f}")
+        print(f"Config {i + 1}: {result.mean_reward:.2f}")
 ```
 
 ### Saving Execution Results

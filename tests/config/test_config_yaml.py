@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from hercule.config import load_config_from_yaml
+from hercule.config import EnvironmentConfig, load_config_from_yaml
 
 
 class TestHerculeConfigYAML:
@@ -177,8 +177,6 @@ environments:
         # First environment should be a string
         assert config.environments[0] == "CartPole-v1"
         # Second environment should be an EnvironmentConfig object
-        from hercule.config import EnvironmentConfig
-
         assert isinstance(config.environments[1], EnvironmentConfig)
         assert config.environments[1].name == "LunarLander-v2"
         assert len(config.environments[1].hyperparameters) == 2

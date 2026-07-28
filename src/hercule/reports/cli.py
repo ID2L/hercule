@@ -35,7 +35,7 @@ def generate(experiment_path: Path, output: Path | None, verbose: bool):
 
     except Exception as e:
         click.echo(f"❌ Error generating report: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
 
 @click.group()

@@ -2,9 +2,13 @@
 
 from pathlib import Path
 
-import pytest
-
-from hercule.config import EnvironmentConfig, HyperParameter, ModelConfig, load_config_from_yaml
+from hercule.config import (
+    EnvironmentConfig,
+    HerculeConfig,
+    HyperParameter,
+    ModelConfig,
+    load_config_from_yaml,
+)
 
 
 class TestHyperparameterExpansion:
@@ -53,7 +57,9 @@ class TestHyperparameterExpansion:
         assert len(variants) == 4  # 2 * 2 = 4 combinations
 
         # Check all combinations exist
-        combinations = {(v.get_hyperparameters_dict()["learning_rate"], v.get_hyperparameters_dict()["epsilon"]) for v in variants}
+        combinations = {
+            (v.get_hyperparameters_dict()["learning_rate"], v.get_hyperparameters_dict()["epsilon"]) for v in variants
+        }
         expected_combinations = {(0.1, 0.5), (0.1, 0.7), (0.2, 0.5), (0.2, 0.7)}
         assert combinations == expected_combinations
 
@@ -120,8 +126,6 @@ class TestHyperparameterExpansion:
 
     def test_expand_hercule_config_with_multiple_expansions(self):
         """Test that HerculeConfig expands both models and environments."""
-        from hercule.config import HerculeConfig
-
         model1 = ModelConfig(
             name="model1",
             hyperparameters=[HyperParameter(key="param", value=[1, 2])],
@@ -152,8 +156,3 @@ class TestHyperparameterExpansion:
         model_names = [m.name for m in expanded.models]
         assert model_names.count("model1") == 2
         assert model_names.count("model2") == 1
-
-
-
-
-
