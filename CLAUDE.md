@@ -34,7 +34,7 @@ uv run pytest                            # 50 tests, ~25s
 uv run pytest tests/config/test_config_expansion.py::TestConfigExpansion::test_expand_model_variants
 uv run pytest -m "not slow"              # markers: slow, integration, unit (--strict-markers is on)
 
-uvx ruff check . --fix && uvx ruff format .   # line-length 120; ruff is NOT a project dependency
+uv run ruff check . --fix && uv run ruff format .   # line-length 120
 uv run gen-doc                           # pdoc -> docs/ (git-ignored; do not commit)
 uv run serve-doc
 ```
@@ -158,4 +158,8 @@ parent directory → recursive search (`MAX_DEPTH`), grouped by environment+env-
 - `EnvironmentManager.load_environment()` still contains debug `print()` calls; `Supervisor` bypasses that class
   and uses `EnvironmentFactory` directly.
 - Model persistence is JSON, so `save_every_n_epoch` on a large DQN writes big files; tune it per experiment.
+- `uv run ruff check .` reports **27 pre-existing violations** (10 `PLC0415` import-outside-top-level, 9 `F401`
+  unused-import, 2 `E501`, 2 `UP035`, plus `B904`/`TC001`/`TC003`/`W293`), 15 of them in
+  `src/hercule/reports/__init__.py`, and `ruff format --check .` flags 5 files. That is existing debt, not
+  something you broke — check the count before and after your change rather than assuming a clean baseline.
 - Speckit workflow: feature specs live in `specs/`, commands in `.cursor/commands/speckit.*.md`.

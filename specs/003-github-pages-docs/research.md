@@ -198,12 +198,26 @@ exercised for real, and which are reasoned from the mechanism, so the distinctio
 in `pyproject.toml`, even though the constitution (principle V) names it the project's single linter/formatter
 and both `README.md` and `AGENTS.md` advertised the command.
 
-**Decision taken here**: correct the documented command to `uvx ruff check .` / `uvx ruff format .`, which runs
-Ruff as an ephemeral tool and needs no dependency change. Verified working (`ruff 0.16.0`).
+**First decision (superseded)**: document `uvx ruff check .` instead, running Ruff as an ephemeral tool with no
+dependency change, since adding a dependency was outside the scope of a documentation-publication feature.
 
-**Deliberately not done**: adding `ruff` to the dev dependency group. That would modify `pyproject.toml` and
-`uv.lock` for every developer, which is outside the scope of a documentation-publication feature. Recommended
-as a small follow-up so the linter version is pinned rather than floating with `uvx`.
+**Resolution (2026-07-28, at the maintainer's request)**: `ruff>=0.16.0` was added to
+`[dependency-groups].dev`, so the linter version is pinned in `uv.lock` and shared by every developer and by CI.
+The documented commands are back to `uv run ruff check .` / `uv run ruff format .`, which is now accurate.
+
+**Baseline recorded at the time of adoption** — the existing codebase is not Ruff-clean, so future changes should
+be judged against this baseline rather than against zero:
+
+| Rule | Count | Rule | Count |
+|------|-------|------|-------|
+| `PLC0415` import-outside-top-level | 10 | `B904` raise-without-from-inside-except | 1 |
+| `F401` unused-import | 9 | `TC001` typing-only-first-party-import | 1 |
+| `E501` line-too-long | 2 | `TC003` typing-only-standard-library-import | 1 |
+| `UP035` deprecated-import | 2 | `W293` blank-line-with-whitespace | 1 |
+
+27 errors total (2 auto-fixable), 15 of them in `src/hercule/reports/__init__.py`; `ruff format --check .`
+reports 5 files needing reformatting. Cleaning this debt is deliberately left out of feature 003 — it would mix
+a formatting sweep into an infrastructure change and touch files this feature has no business editing.
 
 ## Open questions
 
