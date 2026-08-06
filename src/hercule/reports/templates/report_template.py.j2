@@ -12,33 +12,80 @@
 #     name: python3
 # ---
 # -*- coding: utf-8 -*-
-"""
+r"""
 Experiment Report
 Generated automatically from experiment data
 Experiment Path: {{ experiment_path }}
 """
 
 # %% [markdown]
-# # Experiment Report
+# # Experiment Report: {{ env_id }}
 #
 # **Experiment Path:** `{{ experiment_path }}`
+#
+# {{ env_summary }}
 
-# %%
+# %% tags=["{{ tag_remove_cell }}"]
 # Imports
-import base64
 import json
-import matplotlib.pyplot as plt
+import warnings
+import matplotlib
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from hercule.environnements import EnvironmentInspector, load_environment
+from hercule.reports import format_environment_summary
+
+# The Agg backend must be selected ONLY outside a kernel: an unconditional
+# matplotlib.use("Agg") makes plt.show() a silent no-op even inside Jupyter, so every chart
+# would vanish from the notebook, the HTML and the PDF with no error raised (research R12).
+# get_ipython is present inside a kernel and absent under `python report.py`.
+if "get_ipython" not in globals():
+    matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+# A warning emitted during a chart cell's execution lands on stderr as an *output* of that
+# cell, and this report's own tag-removal convention keeps outputs even where it drops source
+# (remove_input) -- so an unfiltered warning would surface as visible report body text (e.g. a
+# local temp path and kernel PID, in the incident that motivated this). Filtered narrowly by
+# message rather than blanket-silenced, so an unanticipated warning class still surfaces to
+# whoever regenerates this report by hand; `render.py`'s `_StripStderrPreprocessor` is the
+# systemic safety net for everything this narrow filter does not anticipate.
+warnings.filterwarnings("ignore", message=r"Tight layout not applied.*", category=UserWarning)
+
+
+def _locate_report_dir(anchor_filename, generation_time_path):
+    """Locate this report's data directory, verifying against an anchor file.
+
+    `Path(__file__)` is undefined when this notebook runs inside a Jupyter kernel: nbclient
+    and Jupyter both start the kernel in the notebook's own directory instead, which makes
+    `Path.cwd()` the correct fallback there. Each candidate is verified against a file that
+    must exist rather than trusted blindly, and the generation-time absolute path is the
+    last-resort fallback for a notebook opened with a stray working directory.
+    """
+    candidates = []
+    try:
+        candidates.append(Path(__file__).parent.resolve())
+    except NameError:
+        pass
+    candidates.append(Path.cwd())
+    candidates.append(Path(generation_time_path))
+
+    for candidate in candidates:
+        if (candidate / anchor_filename).exists():
+            return candidate
+
+    raise FileNotFoundError(
+        f"could not locate the report's data directory: no candidate among {candidates} "
+        f"contains {anchor_filename!r}"
+    )
 
 # %% [markdown]
 # ## Experiment Overview
 
-# %%
+# %% tags=["{{ tag_remove_cell }}"]
 # Get the directory where this report is located (same as experiment directory)
-experiment_dir = Path(__file__).parent.resolve()
+experiment_dir = _locate_report_dir("{{ environment_file_name }}", r"{{ experiment_path_posix }}")
 
 # Load environment configuration
 with open(experiment_dir / "{{ environment_file_name }}", encoding="utf-8") as f:
@@ -49,8 +96,15 @@ with open(experiment_dir / "{{ environment_file_name }}", encoding="utf-8") as f
 #
 # Environment configuration used for the experiment:
 
-# %%
-print("## Environment Configuration")
+# %% tags=["{{ tag_remove_input }}"]
+print(
+    format_environment_summary(
+        environment_config["id"],
+        environment_config.get("kwargs", {}),
+        environment_config.get("max_episode_steps"),
+    )
+)
+print("\n## Environment Configuration")
 print("```json")
 print(json.dumps(environment_config, indent=2))
 print("```")
@@ -60,7 +114,7 @@ print("```")
 #
 # Detailed information about the environment's observation and action spaces:
 
-# %%
+# %% tags=["{{ tag_remove_input }}"]
 # Load environment to get detailed information
 env = load_environment(experiment_dir / "{{ environment_file_name }}")
 env_info = EnvironmentInspector.get_environment_info(env)
@@ -110,23 +164,19 @@ if env_info.spec_info and env_info.spec_info.reward_threshold is not None:
 else:
     print("- **Reward threshold:** Not specified in environment spec")
 
-# %%
-# Load model configuration
-with open(experiment_dir / "{{ model_file_name }}", encoding="utf-8") as f:
-    model_config = json.load(f)
-
 # %% [markdown]
-# ### Model Configuration
+# ### Model
 #
-# Model configuration used for the experiment:
+# The model family trained for this run. Model weights (a Q-table or a neural network's
+# state dict) are never read or printed by this report -- only the family name, taken from
+# the run directory layout rather than opened from the model file, matches the convention
+# `build_run_table` uses.
 
-# %%
-print("## Model Configuration")
-print("```json")
-print(json.dumps(model_config, indent=2))
-print("```")
+# %% tags=["{{ tag_remove_input }}"]
+model_name = experiment_dir.parent.name
+print(f"### Model\n- **Model family:** {model_name}")
 
-# %%
+# %% tags=["{{ tag_remove_cell }}"]
 # Load run_info data
 with open(experiment_dir / "{{ run_info_file_name }}", encoding="utf-8") as f:
     run_info_data = json.load(f)
@@ -136,7 +186,7 @@ with open(experiment_dir / "{{ run_info_file_name }}", encoding="utf-8") as f:
 #
 # Training information from the experiment:
 
-# %%
+# %% tags=["{{ tag_remove_input }}"]
 print("### Training Information")
 print(f"- **Learning Epochs:** {run_info_data.get('learning_ongoing_epoch', 0)}")
 print(f"- **Testing Epochs:** {run_info_data.get('testing_ongoing_epoch', 0)}")
@@ -144,7 +194,7 @@ print(f"- **Testing Epochs:** {run_info_data.get('testing_ongoing_epoch', 0)}")
 # %% [markdown]
 # ## Data Loading and Preparation
 
-# %%
+# %% tags=["{{ tag_remove_cell }}"]
 # Load experiment data from run_info
 learning_rewards = [metric.get("reward", 0) for metric in run_info_data.get("learning_metrics", [])]
 learning_steps = [metric.get("steps_number", 0) for metric in run_info_data.get("learning_metrics", [])]
@@ -154,7 +204,7 @@ testing_steps = [metric.get("steps_number", 0) for metric in run_info_data.get("
 # %% [markdown]
 # ### Data Summary
 
-# %%
+# %% tags=["{{ tag_remove_input }}"]
 # Display data summary
 print("## Data Summary")
 print(f"- **Learning Episodes:** {len(learning_rewards)}")
@@ -170,7 +220,7 @@ if testing_rewards:
 #
 # This section presents the learning progress with visualizations of rewards and steps.
 
-# %%
+# %% tags=["{{ tag_remove_input }}"]
 # Create learning progress plots
 fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
@@ -226,58 +276,63 @@ plt.show()
 # %% [markdown]
 # ### Learning Statistics
 
-# %%
+# %% tags=["{{ tag_remove_input }}"]
 # Learning statistics
 print("### Learning Statistics")
 print(f"- **Mean Reward:** {np.mean(learning_rewards):.3f} ± {np.std(learning_rewards):.3f}")
 print(f"- **Mean Steps:** {np.mean(learning_steps):.3f} ± {np.std(learning_steps):.3f}")
 print(f"- **Success Rate:** {(np.array(learning_rewards) > 0).mean() * 100:.1f}%")
 
-if testing_rewards:
-    # %% [markdown]
-    # ## Final Model Evaluation
-    #
-    # This section presents the final evaluation of the model on test data.
+# %% [markdown]
+# ## Final Model Evaluation
+#
+# This section presents the final evaluation of the model on test data, when the run
+# includes a testing phase.
 
-    # %%
+# %% tags=["{{ tag_remove_input }}"]
+if testing_rewards:
     # Create evaluation plots
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     # Boxplot for testing rewards
     ax1 = axes[0]
-    ax1.boxplot(testing_rewards, labels=['Testing Rewards'])
+    ax1.boxplot(testing_rewards, tick_labels=['Testing Rewards'])
     ax1.set_title('Final Model Evaluation - Rewards')
     ax1.set_ylabel('Reward')
     ax1.grid(True, alpha=0.3)
 
     # Boxplot for testing steps
     ax2 = axes[1]
-    ax2.boxplot(testing_steps, labels=['Testing Steps'])
+    ax2.boxplot(testing_steps, tick_labels=['Testing Steps'])
     ax2.set_title('Final Model Evaluation - Steps')
     ax2.set_ylabel('Steps')
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.show()
+else:
+    print("No testing phase was recorded for this run; nothing to evaluate.")
 
-    # %% [markdown]
-    # ### Evaluation Statistics
+# %% [markdown]
+# ### Evaluation Statistics
 
-    # %%
-    # Evaluation statistics
+# %% tags=["{{ tag_remove_input }}"]
+if testing_rewards:
     print("### Evaluation Statistics")
     print(f"- **Mean Reward:** {np.mean(testing_rewards):.3f} ± {np.std(testing_rewards):.3f}")
     print(f"- **Mean Steps:** {np.mean(testing_steps):.3f} ± {np.std(testing_steps):.3f}")
     print(f"- **Success Rate:** {(np.array(testing_rewards) > 0).mean() * 100:.1f}%")
     print(f"- **Min Reward:** {np.min(testing_rewards):.3f}")
     print(f"- **Max Reward:** {np.max(testing_rewards):.3f}")
+else:
+    print("No evaluation statistics to report — this run has no testing phase.")
 
 # %% [markdown]
 # ## Performance Analysis
 #
 # Comparative analysis of learning and testing performance.
 
-# %%
+# %% tags=["{{ tag_remove_input }}"]
 if learning_rewards and testing_rewards:
     # Compare learning vs testing performance
     learning_mean = np.mean(learning_rewards)
@@ -291,7 +346,7 @@ if learning_rewards and testing_rewards:
 # %% [markdown]
 # ## Conclusion
 
-# %%
+# %% tags=["{{ tag_remove_input }}"]
 if learning_rewards and testing_rewards:
     # Final conclusion analysis
     print("## Conclusion")
