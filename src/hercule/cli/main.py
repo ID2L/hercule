@@ -190,9 +190,21 @@ def play(ctx, model_file: Path, environment_file: Path, no_render: bool, verbose
     type=click.Path(path_type=Path),
     help="Output path for the generated report (default: experiment_path/report.py)",
 )
+@click.option(
+    "--no-pdf",
+    is_flag=True,
+    default=False,
+    help="Generate and execute the notebook but skip PDF rendering.",
+)
+@click.option(
+    "--no-execute",
+    is_flag=True,
+    default=False,
+    help="Write the notebook without executing it (implies --no-pdf).",
+)
 @verbose_option
 @click.pass_context
-def report(ctx, experiment_path: Path, output: Path | None, verbose: int) -> None:
+def report(ctx, experiment_path: Path, output: Path | None, no_pdf: bool, no_execute: bool, verbose: int) -> None:
     """Generate a comprehensive report for an experiment.
 
     This command creates a detailed Jupyter-compatible report with visualizations
@@ -203,33 +215,81 @@ def report(ctx, experiment_path: Path, output: Path | None, verbose: int) -> Non
     """
     logger = configure_logging(verbose)
 
+    execute = not no_execute
+    render_pdf = not no_pdf and not no_execute
+
     logger.info(f"Generating report for experiment: {experiment_path}")
 
     click.echo(f"\n📊 Generating report for experiment: {experiment_path}")
 
-    try:
-        report_path = generate_experiment_report(experiment_path, output)
+    def report_progress(message: str) -> None:
+        click.echo(f"   ▶ {message}")
 
-        click.echo(f"✅ Report generated successfully: {report_path}")
-        click.echo("\n📖 To view the report:")
-        click.echo("1. Open a Jupyter notebook")
-        click.echo(f"2. Run the cells in: {report_path}")
-        click.echo("3. The report will display visualizations and analysis")
+    try:
+        bundle = generate_experiment_report(
+            experiment_path,
+            output,
+            execute=execute,
+            render_pdf=render_pdf,
+            progress=report_progress,
+        )
 
     except FileNotFoundError as e:
         logger.error(f"Experiment directory not found: {e}")
         click.echo(f"❌ Experiment directory not found: {e}")
-        return
+        ctx.exit(1)
+
+    except OSError as e:
+        # Distinct from "Invalid experiment data" below: the experiment data loaded fine and
+        # only an output artifact could not be written -- almost always a locked
+        # .pdf/.ipynb/.html (e.g. an open preview tab). Must be listed before the ValueError
+        # clause so it is never misreported as invalid input (Defect 3).
+        logger.error(f"Cannot write report output: {e}")
+        click.echo(f"❌ Cannot write report output: {e}")
+        ctx.exit(1)
 
     except ValueError as e:
         logger.error(f"Invalid experiment data: {e}")
         click.echo(f"❌ Invalid experiment data: {e}")
-        return
+        ctx.exit(1)
 
     except Exception as e:
         logger.error(f"Failed to generate report: {e}")
         click.echo(f"❌ Error generating report: {e}")
-        return
+        ctx.exit(1)
+
+    if bundle.report_count == 0:
+        logger.error("No report could be generated")
+        click.echo("❌ No report could be generated.")
+        for skipped in bundle.skipped_groups:
+            click.echo(f"   {skipped.path}: {skipped.reason}")
+        ctx.exit(1)
+
+    click.echo(f"✅ {bundle.report_count} report(s) generated")
+    for artifact in bundle.reports:
+        # The .py source is the primary, durable, re-runnable artifact -- always listed first
+        # (FR-027). The notebook, HTML and PDF are derived products of executing it, so each
+        # is only listed when it is a distinct file: with --no-execute, notebook/html fall back
+        # to the source itself and would otherwise print the same path three times.
+        click.echo(f"   {artifact.source}")
+        if artifact.notebook != artifact.source:
+            click.echo(f"   {artifact.notebook}")
+        if artifact.html != artifact.notebook and artifact.html != artifact.source:
+            click.echo(f"   {artifact.html}")
+        if artifact.pdf is not None:
+            click.echo(f"   {artifact.pdf}")
+        elif artifact.pdf_skip_reason is not None:
+            click.echo(f"   ⚠️  PDF skipped: {artifact.pdf_skip_reason}")
+
+    if bundle.skipped_groups:
+        click.echo(f"⚠️  {len(bundle.skipped_groups)} group(s) skipped:")
+        for skipped in bundle.skipped_groups:
+            click.echo(f"   {skipped.path}: {skipped.reason}")
+
+    click.echo("\n📖 To view the report:")
+    click.echo("1. Open a Jupyter notebook")
+    click.echo("2. Run the cells in the report file(s) listed above")
+    click.echo("3. The report will display visualizations and analysis")
 
     logger.info("Report generation completed")
 
