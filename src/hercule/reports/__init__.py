@@ -1,31 +1,208 @@
 """Module for generating experiment reports."""
 
-import base64
-import io
-import json
 import logging
+import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Final
 
-import matplotlib.pyplot as plt
-import pandas as pd
 from jinja2 import Environment, FileSystemLoader
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from hercule.config import HyperParameter
-from hercule.environnements import load_environment
-from hercule.models import create_model, model_file_name
-from hercule.run import Runner, run_info_file_name
+from hercule.models import model_file_name
+from hercule.reports.render import ArtifactWriteError, RenderResult, check_artifacts_writable, render_report
+from hercule.reports.run_table import (
+    TOP_TABLE_COLUMN_LABELS,
+    ConstantMetric,
+    HyperparameterGridCardinality,
+    HyperparameterGridDimension,
+    MetricRedundancy,
+    RankedRun,
+    ReportManifest,
+    RunRecord,
+    RunTable,
+    SkippedRun,
+    build_run_table,
+    detect_constant_metrics,
+    detect_redundant_metrics,
+    format_environment_summary,
+    format_relative_run_path,
+    format_series_labels,
+    format_top_table_hyperparameter_cells,
+    format_varying_hyperparameters,
+    hyperparameter_grid_cardinality,
+    rank_runs_by_performance,
+    select_top_table_metric_columns,
+)
+from hercule.reports.selection import (
+    RankingMetric,
+    SelectedSeries,
+    SeriesBucket,
+    SeriesSelection,
+    select_series,
+)
+from hercule.reports.sensitivity import (
+    HyperparameterEtaSquared,
+    ImportanceResult,
+    ImportanceUnavailable,
+    InteractionCell,
+    InteractionGridResult,
+    InteractionGridUnavailable,
+    InteractionRankingResult,
+    InteractionRankingUnavailable,
+    MainEffectLevel,
+    MainEffectsForHyperparameter,
+    MainEffectsResult,
+    MainEffectsUnavailable,
+    MetricName,
+    PairwiseInteraction,
+    RankShift,
+    ReplicationStatus,
+    TopDecileComparisonResult,
+    TopDecileComparisonUnavailable,
+    VarianceDecompositionEntry,
+    VarianceDecompositionResult,
+    VarianceDecompositionUnavailable,
+    hyperparameter_importance,
+    hyperparameter_main_effects,
+    interaction_grid,
+    interaction_ranking,
+    max_performance_is_saturated,
+    order_varying_hyperparameters_by_importance,
+    replication_status,
+    top_decile_comparison,
+    variance_decomposition,
+)
+from hercule.run import run_info_file_name
 from hercule.supervisor import environment_file_name
-
-
-if TYPE_CHECKING:
-    from hercule.models.epoch_result import EpochResult
 
 
 logger = logging.getLogger(__name__)
 
 # Maximum depth for recursive search of experiment directories
 MAX_DEPTH = 4
+
+# Cell-tag vocabulary shared between the generated templates and the render pipeline
+# (contracts C4). nbconvert ships no default tag names, so these are the project's own
+# fixed strings; templates and reports/render.py must both use these constants rather
+# than literal strings, or they will silently drift apart.
+TAG_REMOVE_CELL: Final = "remove_cell"
+TAG_REMOVE_INPUT: Final = "remove_input"
+TAG_REMOVE_OUTPUT: Final = "remove_output"
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _sanitize_reason(value: str) -> str:
+    """Strip ANSI escapes and coerce to ASCII text safe for any console encoding.
+
+    Reason strings may be derived from exception text, which can carry arbitrary user
+    characters and raw ANSI escape codes (research R11) — printing them unsanitised has
+    already been observed to raise `UnicodeEncodeError` on a cp1252 console.
+
+    Args:
+        value: The raw reason text.
+
+    Returns:
+        The stripped, ANSI-free, ASCII-safe text.
+    """
+    stripped = _ANSI_ESCAPE_RE.sub("", value).strip()
+    return stripped.encode("ascii", errors="replace").decode("ascii")
+
+
+class SkippedGroup(BaseModel):
+    """A candidate report group that was found but not rendered.
+
+    Recorded so a silent absence of output is never mistaken for success (FR-030).
+    """
+
+    path: Path
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def _validate_reason(cls, value: str) -> str:
+        sanitized = _sanitize_reason(value)
+        if not sanitized:
+            raise ValueError("reason must not be empty")
+        return sanitized
+
+
+class ReportArtifacts(BaseModel):
+    """Everything produced for one report group.
+
+    Composed from a render pipeline result (paths, PDF skip reason) and a run table
+    (loaded/skipped run counts), so the CLI, the controller and tests all read one shape
+    (FR-027).
+
+    `source` is the generated jupytext `.py` -- the durable, re-runnable, version-controllable
+    artifact; it is always written and always distinct from every other field. `notebook` is
+    the *executed* `.ipynb` when `execute=True`, i.e. a derived, disposable product of running
+    `source` through a kernel. When `execute=False` (`--no-execute`), no kernel ever runs, so
+    there is nothing to derive: `notebook` (and `html`) fall back to `source` itself, and
+    callers must compare `notebook == source` before treating them as separate artifacts.
+    """
+
+    source: Path
+    notebook: Path
+    html: Path
+    pdf: Path | None = None
+    pdf_skip_reason: str | None = None
+    runs_loaded: int = Field(ge=0)
+    runs_skipped: int = Field(ge=0)
+
+    @field_validator("pdf_skip_reason")
+    @classmethod
+    def _validate_pdf_skip_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        sanitized = _sanitize_reason(value)
+        if not sanitized:
+            raise ValueError("pdf_skip_reason must not be empty when set")
+        return sanitized
+
+    @model_validator(mode="after")
+    def _validate_pdf_xor_reason(self) -> "ReportArtifacts":
+        if (self.pdf is None) == (self.pdf_skip_reason is None):
+            raise ValueError("exactly one of pdf or pdf_skip_reason must be set")
+        return self
+
+
+class ReportBundle(BaseModel):
+    """The widened return of `generate_report()`/`generate_experiment_report()`.
+
+    Replaces the previous bare `Path` return so every artifact and every skip reason can
+    be reported to the caller (FR-027, FR-030).
+    """
+
+    reports: list[ReportArtifacts] = Field(default_factory=list)
+    skipped_groups: list[SkippedGroup] = Field(default_factory=list)
+
+    @property
+    def report_count(self) -> int:
+        """Number of report groups actually rendered."""
+        return len(self.reports)
+
+    @property
+    def pdf_count(self) -> int:
+        """Number of rendered groups whose PDF was produced (not skipped)."""
+        return sum(1 for artifact in self.reports if artifact.pdf is not None)
+
+    @property
+    def has_skips(self) -> bool:
+        """Whether at least one candidate group was skipped."""
+        return bool(self.skipped_groups)
+
+    @model_validator(mode="after")
+    def _validate_non_empty_and_unique(self) -> "ReportBundle":
+        if not self.reports and not self.skipped_groups:
+            raise ValueError("a report bundle must contain at least one report or one skipped group")
+        seen: set[Path] = set()
+        for artifact in self.reports:
+            if artifact.notebook in seen:
+                raise ValueError(f"duplicate notebook path in report bundle: {artifact.notebook}")
+            seen.add(artifact.notebook)
+        return self
 
 
 def is_valid_experiment_directory(directory: Path) -> bool:
@@ -90,213 +267,120 @@ def find_experiment_directories(root_directory: Path, max_depth: int = MAX_DEPTH
     return experiment_dirs
 
 
-def _format_python_value(value: Any, indent: int = 0, current_indent: int = 0) -> str:
-    """
-    Format a Python value as a Python literal string.
+# Reason recorded when the caller opted out of execution entirely (--no-execute); render.py
+# owns the render_pdf=False reason text for the executed-but-not-printed case, since that
+# path actually goes through render_report.
+_NOT_EXECUTED_REASON: Final = "notebook was not executed (--no-execute)"
 
-    Converts dictionaries, lists, booleans, None, etc. to valid Python code.
-    This is used to generate Python code from template data.
+
+def _clear_stale_render_artifacts(report_path: Path) -> None:
+    """Remove any `.ipynb`/`.failed.ipynb`/`.html`/`.pdf` left by a previous, executed run.
+
+    Regeneration must replace previously generated artifacts rather than leaving stale ones
+    beside them (FR-028). `render_report` performs the same cleanup itself when it runs, but
+    when the caller passes `execute=False` it never runs at all -- without this, a report
+    previously generated with execution enabled and then regenerated with `--no-execute`
+    would keep an `.ipynb`/`.html`/`.pdf` that no longer matches the freshly written `.py`.
+
+    A writability preflight runs first (the same one `render_report` uses), so a locked
+    sibling (e.g. a PDF open in a preview tab) raises before anything is deleted, rather than
+    partway through -- leaving the previous set of artifacts fully intact.
 
     Args:
-        value: The value to format
-        indent: Number of spaces for indentation levels
-        current_indent: Current indentation level
+        report_path: The just-written jupytext `.py` report.
+
+    Raises:
+        ArtifactWriteError: When a sibling artifact cannot be removed.
+    """
+    lock_reason = check_artifacts_writable(report_path)
+    if lock_reason is not None:
+        raise ArtifactWriteError(lock_reason)
+
+    for suffix_path in (
+        report_path.with_suffix(".ipynb"),
+        report_path.with_name(f"{report_path.stem}.failed.ipynb"),
+        report_path.with_suffix(".html"),
+        report_path.with_suffix(".pdf"),
+    ):
+        try:
+            suffix_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise ArtifactWriteError(
+                _sanitize_reason(
+                    f"cannot remove existing '{suffix_path}' -- it is likely open in another "
+                    f"program (e.g. a preview tab or editor); close it and regenerate the report: {exc}"
+                )
+            ) from exc
+
+
+def _render_and_build_artifacts(
+    report_path: Path,
+    run_table: RunTable,
+    *,
+    execute: bool,
+    render_pdf: bool,
+    progress: Callable[[str], None] | None,
+) -> ReportArtifacts:
+    """Execute (or skip executing) a generated `.py` report and build its `ReportArtifacts`.
+
+    Shared by the individual and comparative generation paths so the `execute`/`render_pdf`
+    decision is made in exactly one place (T101). When `execute` is `False`, `render_report`
+    is never invoked -- no kernel starts, no `.ipynb`/`.html` is produced -- and the artifacts
+    fall back to the `.py` file itself for both `notebook` and `html`, matching today's
+    scaffold-only behaviour (`--no-execute` implies `--no-pdf`, contracts C1).
+
+    Args:
+        report_path: The just-written jupytext `.py` report.
+        run_table: The `RunTable` already built for this group, for the loaded/skipped counts.
+        execute: Whether the notebook should be executed.
+        render_pdf: Whether a PDF should be rendered; ignored when `execute` is `False`.
+        progress: Optional sink for human-readable progress lines.
 
     Returns:
-        String representation of the value as valid Python code
+        The `ReportArtifacts` describing every artifact produced for this report.
     """
-    indent_str = " " * (current_indent * indent)
+    if not execute:
+        _clear_stale_render_artifacts(report_path)
+        return ReportArtifacts(
+            source=report_path,
+            notebook=report_path,
+            html=report_path,
+            pdf=None,
+            pdf_skip_reason=_NOT_EXECUTED_REASON,
+            runs_loaded=run_table.runs_loaded,
+            runs_skipped=run_table.runs_skipped,
+        )
 
-    if value is None:
-        return "None"
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    if isinstance(value, (int, float)):
-        return repr(value)
-    if isinstance(value, str):
-        return repr(value)
-    if isinstance(value, dict):
-        if not value:
-            return "{}"
-        items = []
-        next_indent = current_indent + 1
-        next_indent_str = " " * (next_indent * indent)
-        for k, v in value.items():
-            key_str = repr(k)
-            val_str = _format_python_value(v, indent, next_indent)
-            items.append(f"{next_indent_str}{key_str}: {val_str}")
-        return "{\n" + ",\n".join(items) + f"\n{indent_str}}}"
-    if isinstance(value, (list, tuple)):
-        if not value:
-            return "[]" if isinstance(value, list) else "()"
-        items = []
-        next_indent = current_indent + 1
-        next_indent_str = " " * (next_indent * indent)
-        if isinstance(value, list):
-            bracket_open = "["
-            bracket_close = "]"
+    if progress is not None:
+        progress(f"Executing report: {report_path}")
+
+    render_result = render_report(report_path, render_pdf=render_pdf, progress=progress)
+
+    if progress is not None:
+        if render_result.pdf is not None:
+            progress(f"PDF rendered: {render_result.pdf}")
         else:
-            bracket_open = "("
-            bracket_close = ")"
-            # Add trailing comma for single-element tuples
-            if len(value) == 1:
-                bracket_close = ",)"
-        for item in value:
-            item_str = _format_python_value(item, indent, next_indent)
-            items.append(f"{next_indent_str}{item_str}")
-        return f"{bracket_open}\n" + ",\n".join(items) + f"\n{indent_str}{bracket_close}"
-    # Fallback to repr for other types
-    return repr(value)
+            progress(f"PDF skipped: {render_result.pdf_skip_reason}")
+
+    return ReportArtifacts(
+        source=report_path,
+        notebook=render_result.notebook,
+        html=render_result.html,
+        pdf=render_result.pdf,
+        pdf_skip_reason=render_result.pdf_skip_reason,
+        runs_loaded=run_table.runs_loaded,
+        runs_skipped=run_table.runs_skipped,
+    )
 
 
-class ExperimentData:
-    """Container for experiment data loaded from JSON files."""
-
-    def __init__(self, experiment_path: Path):
-        self.experiment_path = experiment_path
-        self.environment_data: dict[str, Any] | None = None
-        self.model_data: dict[str, Any] | None = None
-        self.run_info_data: dict[str, Any] | None = None
-        self.learning_metrics: list[EpochResult] = []
-        self.testing_metrics: list[EpochResult] = []
-        self.runner: Runner | None = None
-
-    def load_data(self) -> bool:
-        """Load all experiment data using existing Hercule methods."""
-        try:
-            # Load environment data using the constant
-            env_file = self.experiment_path / environment_file_name
-            if env_file.exists():
-                with open(env_file, encoding="utf-8") as f:
-                    self.environment_data = json.load(f)
-            else:
-                logger.warning(f"Environment file not found: {env_file}")
-
-            # Load model data using the constant
-            model_file = self.experiment_path / model_file_name
-            if model_file.exists():
-                with open(model_file, encoding="utf-8") as f:
-                    self.model_data = json.load(f)
-            else:
-                logger.warning(f"Model file not found: {model_file}")
-
-            # Load run info data using Runner.load() method
-            try:
-                # Load raw JSON to get hyperparameters
-                run_info_file = self.experiment_path / run_info_file_name
-                hyperparams_from_json: dict[str, Any] = {}
-                if run_info_file.exists():
-                    with open(run_info_file, encoding="utf-8") as f:
-                        run_info_raw = json.load(f)
-                        # Get hyperparameters directly from JSON
-                        hyperparams_from_json = run_info_raw.get("model_hyperparameters", {})
-
-                self.runner = Runner.load(self.experiment_path)
-                if self.runner:
-                    # Get hyperparameters from the configured model using get_hyperparameters_dict()
-                    hyperparams: dict[str, Any] = {}
-                    if len(self.experiment_path.parts) >= 1:
-                        model_name = self.experiment_path.parent.name
-                        try:
-                            # Create model instance
-                            model = create_model(model_name)
-                            # Load model data from JSON if available
-                            if model_file.exists():
-                                model.load(self.experiment_path)
-
-                            # Load environment if available to configure the model
-                            env = None
-                            if self.environment_data and "id" in self.environment_data:
-                                try:
-                                    env = load_environment(self.experiment_path)
-                                except Exception as e:
-                                    logger.debug(f"Could not load environment: {e}")
-
-                            # Configure model with hyperparameters from JSON (or use defaults)
-                            if (
-                                hyperparams_from_json
-                                and isinstance(hyperparams_from_json, dict)
-                                and len(hyperparams_from_json) > 0
-                            ):
-                                # Use hyperparameters from JSON
-                                if env:
-                                    model.configure(env, hyperparams_from_json)
-                                else:
-                                    # If no environment, we can't fully configure, but we can still get defaults
-                                    # Merge provided hyperparameters with defaults
-                                    defaults = model.get_default_hyperparameters()
-                                    merged = defaults.copy()
-                                    merged.update(hyperparams_from_json)
-                                    # Store in model's hyperparameters list
-                                    model.hyperparameters = [HyperParameter(key=k, value=v) for k, v in merged.items()]
-                            else:
-                                # No hyperparameters in JSON, use defaults
-                                if env:
-                                    model.configure(env, {})
-                                else:
-                                    # Store defaults in model's hyperparameters
-                                    defaults = model.get_default_hyperparameters()
-                                    model.hyperparameters = [
-                                        HyperParameter(key=k, value=v) for k, v in defaults.items()
-                                    ]
-
-                            # Get hyperparameters from the configured model
-                            hyperparams = model.get_hyperparameters_dict()
-                            logger.debug(f"Retrieved hyperparameters from model {model_name}: {hyperparams}")
-                        except Exception as e:
-                            logger.warning(f"Could not get hyperparameters from model {model_name}: {e}")
-                            # Fallback to JSON or defaults
-                            if (
-                                hyperparams_from_json
-                                and isinstance(hyperparams_from_json, dict)
-                                and len(hyperparams_from_json) > 0
-                            ):
-                                hyperparams = hyperparams_from_json.copy()
-                            else:
-                                try:
-                                    temp_model = create_model(model_name)
-                                    hyperparams = temp_model.get_default_hyperparameters()
-                                except Exception:
-                                    hyperparams = {}
-
-                    self.run_info_data = {
-                        "learning_ongoing_epoch": self.runner.learning_ongoing_epoch,
-                        "testing_ongoing_epoch": self.runner.testing_ongoing_epoch,
-                        "learning_metrics": [metric.model_dump() for metric in self.runner.learning_metrics],
-                        "testing_metrics": [metric.model_dump() for metric in self.runner.testing_metrics],
-                        "model_hyperparameters": hyperparams,
-                    }
-                    self.learning_metrics = self.runner.learning_metrics
-                    self.testing_metrics = self.runner.testing_metrics
-                else:
-                    logger.warning(f"Failed to load Runner from {self.experiment_path}")
-            except Exception as e:
-                logger.warning(f"Error loading Runner: {e}")
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error loading experiment data: {e}")
-            return False
-
-    def get_learning_rewards(self) -> list[float]:
-        """Extract learning rewards from metrics."""
-        return [metric.reward for metric in self.learning_metrics]
-
-    def get_learning_steps(self) -> list[int]:
-        """Extract learning steps from metrics."""
-        return [metric.steps_number for metric in self.learning_metrics]
-
-    def get_testing_rewards(self) -> list[float]:
-        """Extract testing rewards from metrics."""
-        return [metric.reward for metric in self.testing_metrics]
-
-    def get_testing_steps(self) -> list[int]:
-        """Extract testing steps from metrics."""
-        return [metric.steps_number for metric in self.testing_metrics]
-
-
-def generate_individual_report(experiment_path: Path, output_path: Path | None = None) -> Path:
+def generate_individual_report(
+    experiment_path: Path,
+    output_path: Path | None = None,
+    *,
+    execute: bool = True,
+    render_pdf: bool = True,
+    progress: Callable[[str], None] | None = None,
+) -> ReportArtifacts:
     """
     Generate an individual Jupyter notebook report for a single experiment.
 
@@ -306,36 +390,65 @@ def generate_individual_report(experiment_path: Path, output_path: Path | None =
     Args:
         experiment_path: Path to the experiment directory containing JSON files
         output_path: Path where to save the generated report (default: experiment_path/report.py)
+        execute: Whether the notebook should be executed via `render_report` (jupytext ->
+            execute -> HTML -> PDF, `reports/render.py`). When `False`, only the `.py` scaffold
+            is written and `render_pdf` is ignored.
+        render_pdf: Whether a PDF should be rendered alongside the notebook; ignored when
+            `execute` is `False`. A PDF failure never raises -- it is reported as
+            `pdf_skip_reason` (FR-026).
+        progress: Optional sink for human-readable progress lines.
 
     Returns:
-        Path to the generated report file
+        ReportArtifacts describing the generated notebook and why the PDF was skipped.
+
+    Raises:
+        ValueError: If experiment data cannot be loaded from experiment_path.
+        ArtifactWriteError: If a render artifact at `output_path` (or one of its
+            `.ipynb`/`.html`/`.pdf` siblings) cannot be replaced or removed -- most commonly
+            because it is open in another program. Checked before anything is written, so a
+            failure here leaves any previously generated artifacts untouched.
     """
     if output_path is None:
         output_path = experiment_path / "report.py"
 
-    # Load experiment data
-    experiment_data = ExperimentData(experiment_path)
-    if not experiment_data.load_data():
-        raise ValueError(f"Failed to load experiment data from {experiment_path}")
+    lock_reason = check_artifacts_writable(output_path)
+    if lock_reason is not None:
+        raise ArtifactWriteError(lock_reason)
+
+    if progress is not None:
+        progress(f"Generating individual report for {experiment_path}")
+
+    # build_run_table is the single loading routine (FR-004, FR-009); it also validates the run
+    # is readable without ever opening model.json (FR-007, SC-010).
+    run_table = build_run_table(experiment_path)
+    if run_table.runs_loaded == 0:
+        reason = run_table.skipped[0].reason if run_table.skipped else "no run could be loaded"
+        raise ValueError(f"Failed to load experiment data from {experiment_path}: {reason}")
 
     # Create template environment
     template_dir = Path(__file__).parent / "templates"
     env = Environment(loader=FileSystemLoader(template_dir))
-    # Add custom filter to format Python values correctly (False/True instead of false/true)
-    env.filters["topython"] = lambda v, indent=2: _format_python_value(v, indent=indent)
     template = env.get_template("report_template.py.j2")
 
-    # Calculate relative path from report to experiment directory
-    # Since report is in the same directory as experiment, relative path is "."
-    experiment_relative_path = "."
+    # The environment is named in prose with values baked in as literal text at generation
+    # time (FR-001, FR-002, FR-003) — the sole record already loaded above carries them.
+    record = run_table.records[0]
+    env_summary = format_environment_summary(record.env_id, record.env_kwargs, record.max_episode_steps)
 
-    # Prepare template context
+    # Prepare template context. The generation-time absolute path is baked in as a last-resort
+    # fallback for `_locate_report_dir()` (research R9); forward-slashed so it is a valid raw
+    # Python string literal on Windows.
     context = {
         "experiment_path": str(experiment_path),
-        "experiment_relative_path": experiment_relative_path,
+        "experiment_path_posix": str(experiment_path.resolve()).replace("\\", "/"),
         "environment_file_name": environment_file_name,
         "model_file_name": model_file_name,
         "run_info_file_name": run_info_file_name,
+        "tag_remove_cell": TAG_REMOVE_CELL,
+        "tag_remove_input": TAG_REMOVE_INPUT,
+        "tag_remove_output": TAG_REMOVE_OUTPUT,
+        "env_id": record.env_id,
+        "env_summary": env_summary,
     }
 
     # Generate report
@@ -346,10 +459,22 @@ def generate_individual_report(experiment_path: Path, output_path: Path | None =
         f.write(report_content)
 
     logger.info(f"Individual report generated: {output_path}")
-    return output_path
+    if progress is not None:
+        progress(f"Report written: {output_path}")
+
+    return _render_and_build_artifacts(
+        output_path, run_table, execute=execute, render_pdf=render_pdf, progress=progress
+    )
 
 
-def generate_report(experiment_path: Path, output_path: Path | None = None) -> Path:
+def generate_report(
+    experiment_path: Path,
+    output_path: Path | None = None,
+    *,
+    execute: bool = True,
+    render_pdf: bool = True,
+    progress: Callable[[str], None] | None = None,
+) -> ReportBundle:
     """
     Generate a Jupyter notebook report for an experiment or multiple experiments.
 
@@ -357,20 +482,40 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
     - If the given directory contains a valid experiment structure (environment.json,
       model.json, run_info.json), generates an individual report.
     - If the given directory contains subdirectories with valid experiment structures
-      (searched up to MAX_DEPTH levels deep), generates a comparative report.
+      (searched up to MAX_DEPTH levels deep), generates a comparative report per
+      environment-settings group.
 
     Args:
         experiment_path: Path to the experiment directory or parent directory
-        output_path: Path where to save the generated report
-                    (default: experiment_path/report.py for individual,
-                     experiment_path/comparative_report.py for comparative)
+        output_path: Path where to save the generated report. Only supported for an individual
+            report (default: experiment_path/report.py); rejected with a `ValueError` for a
+            comparative run, since a parent directory can expand into several report groups,
+            each of which writes its own `comparative_report.py` beside its runs.
+        execute: Whether generated notebooks should be executed via `render_report` (jupytext
+            -> execute -> HTML -> PDF, `reports/render.py`). When `False`, only the `.py`
+            scaffold is written per group and `render_pdf` is ignored.
+        render_pdf: Whether a PDF should be rendered alongside each notebook; ignored when
+            `execute` is `False`. A PDF failure never raises -- it is reported as
+            `pdf_skip_reason` (FR-026).
+        progress: Optional sink for human-readable progress lines, so a caller can satisfy a
+            progress cadence without this module importing a CLI framework.
 
     Returns:
-        Path to the generated report file
+        ReportBundle listing every report group actually rendered and every candidate group
+        that was skipped, with a reason. A group whose artifacts could not be written (a
+        locked PDF, most commonly) is recorded here as a skipped group -- it never aborts the
+        remaining groups (Defect 1's robustness contract).
 
     Raises:
-        ValueError: If no valid experiment directories are found
-        FileNotFoundError: If the experiment_path doesn't exist
+        ValueError: If no valid experiment directories are found, no qualifying report group
+            could be generated (fewer than 2 loadable runs in every candidate group), or
+            `output_path` was given for a comparative (multi-group) run.
+        FileNotFoundError: If the experiment_path doesn't exist.
+        ArtifactWriteError: If this is a single-group (individual) run and its artifacts cannot
+            be written, or if this is a multi-group run and *every* candidate group failed to
+            write its artifacts (an OSError-shaped problem, never "invalid experiment data" --
+            Defect 3). A multi-group run where at least one group succeeds never raises this;
+            the failure is reported via `ReportBundle.skipped_groups` instead.
     """
     if not experiment_path.exists():
         raise FileNotFoundError(f"Directory not found: {experiment_path}")
@@ -381,7 +526,16 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
     # Check if the root directory itself is a valid experiment directory
     if is_valid_experiment_directory(experiment_path):
         logger.info("Root directory is a valid experiment directory, generating individual report")
-        return generate_individual_report(experiment_path, output_path)
+        artifacts = generate_individual_report(
+            experiment_path, output_path, execute=execute, render_pdf=render_pdf, progress=progress
+        )
+        return ReportBundle(reports=[artifacts])
+
+    if output_path is not None:
+        raise ValueError(
+            "output_path is not supported when experiment_path expands into a comparative report: "
+            "each environment-settings group writes its own comparative_report.py beside its runs"
+        )
 
     # Search for experiment directories recursively
     logger.info(f"Searching for experiment directories in {experiment_path} (max depth: {MAX_DEPTH})")
@@ -421,64 +575,91 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
     logger.info(f"Found {len(experiment_groups)} environment parametrization group(s)")
 
     # Generate a comparative report for each group
-    generated_reports: list[Path] = []
+    generated_reports: list[ReportArtifacts] = []
+    skipped_groups: list[SkippedGroup] = []
+    # Tracked separately from `skipped_groups` so that, if every group fails, the exception
+    # raised below can distinguish "every group had too few runs" (ValueError, invalid input)
+    # from "every group's output was locked" (an OSError -- an output problem, not an invalid
+    # experiment) rather than collapsing both into the same generic message (Defect 3).
+    write_failed_groups: list[SkippedGroup] = []
     for env_params_dir, group_experiment_dirs in experiment_groups.items():
         if len(group_experiment_dirs) < 2:
-            logger.info(
-                f"Skipping {env_params_dir}: only {len(group_experiment_dirs)} experiment(s), "
-                "need at least 2 for comparison"
-            )
+            reason = f"only {len(group_experiment_dirs)} run(s), need at least 2 for comparison"
+            logger.info(f"Skipping {env_params_dir}: {reason}")
+            skipped_groups.append(SkippedGroup(path=env_params_dir, reason=reason))
             continue
 
-        # Generate report at the environment parametrization level
+        logger.info(f"Generating comparative report for {len(group_experiment_dirs)} runs in {env_params_dir}")
+        if progress is not None:
+            progress(f"Generating comparative report for {len(group_experiment_dirs)} runs in {env_params_dir}")
+
+        # build_run_table is the single loading routine (FR-004, FR-009), reused unchanged by
+        # the generated notebook at execution time.
+        run_table = build_run_table(env_params_dir)
+        if run_table.runs_loaded < 2:
+            reason = f"only {run_table.runs_loaded} run(s) loaded successfully, need at least 2 for comparison"
+            logger.warning(f"{reason} in {env_params_dir}, skipping")
+            skipped_groups.append(SkippedGroup(path=env_params_dir, reason=reason))
+            continue
+
         report_path = env_params_dir / "comparative_report.py"
 
-        logger.info(f"Generating comparative report for {len(group_experiment_dirs)} experiments in {env_params_dir}")
-
-        # Load data from all experiment directories in this group
-        experiments = []
-        for exp_dir in group_experiment_dirs:
-            try:
-                exp_data = ExperimentData(exp_dir)
-                if exp_data.load_data():
-                    # Generate a readable name from the directory path relative to env_params_dir
-                    relative_path = exp_dir.relative_to(env_params_dir)
-                    exp_name = str(relative_path).replace("\\", "/")
-                    # Relative path for loading JSON files
-                    # (forward slashes for cross-platform compatibility)
-                    exp_relative_path = str(relative_path).replace("\\", "/")
-
-                    experiments.append(
-                        {
-                            "path": str(exp_dir),
-                            "name": exp_name,
-                            "relative_path": exp_relative_path,
-                        }
-                    )
-                    logger.debug(f"Prepared experiment data from: {exp_dir}")
-                else:
-                    logger.warning(f"Failed to load data from: {exp_dir}")
-            except Exception as e:
-                logger.error(f"Error loading experiment from {exp_dir}: {e}")
-
-        if len(experiments) < 2:
-            logger.warning(f"Not enough valid experiments for comparison in {env_params_dir}, skipping")
+        # Verify every render artifact for this group can be replaced/removed BEFORE writing
+        # anything -- including the manifest and the `.py` itself (FR-028, "robustness in
+        # report generation"). A group whose PDF is locked open in another program (a preview
+        # tab, an editor) must not abort the whole `hercule report` invocation: it is recorded
+        # as a skipped group with a reason naming the locked file, and the remaining groups are
+        # still generated.
+        lock_reason = check_artifacts_writable(report_path)
+        if lock_reason is not None:
+            reason = f"cannot write report artifacts: {lock_reason}"
+            logger.warning(f"{reason} in {env_params_dir}, skipping")
+            skipped_entry = SkippedGroup(path=env_params_dir, reason=reason)
+            skipped_groups.append(skipped_entry)
+            write_failed_groups.append(skipped_entry)
             continue
+
+        # Write the manifest the generated notebook's directory search verifies against
+        # (research R9, contracts C5) — the environment-settings level has no naturally
+        # occurring anchor file the way an individual report has environment.json.
+        manifest = ReportManifest(
+            root=env_params_dir,
+            env_id=run_table.env_id or "",
+            env_kwargs=run_table.env_kwargs or {},
+            max_episode_steps=run_table.max_episode_steps,
+            model_names=run_table.model_names,
+            runs_loaded=run_table.runs_loaded,
+            runs_skipped=run_table.runs_skipped,
+        )
+        manifest_path = env_params_dir / "report_manifest.json"
+        manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
 
         # Create template environment
         template_dir = Path(__file__).parent / "templates"
         env = Environment(loader=FileSystemLoader(template_dir))
-        # Add custom filter to format Python values correctly (False/True instead of false/true)
-        env.filters["topython"] = lambda v, indent=2: _format_python_value(v, indent=indent)
         template = env.get_template("comparative_report_template.py.j2")
 
-        # Prepare template context
+        # The environment is named in prose with values baked in as literal text at generation
+        # time (FR-001, FR-002) — the run table already built for the manifest above carries
+        # them, so no extra disk read is needed.
+        env_summary = format_environment_summary(
+            run_table.env_id or "", run_table.env_kwargs or {}, run_table.max_episode_steps
+        )
+
+        # Prepare template context. The generation-time absolute path is baked in as a
+        # last-resort fallback for `_locate_report_dir()` (research R9); forward-slashed so it
+        # is a valid raw Python string literal on Windows.
         context = {
             "root_path": str(env_params_dir),
-            "experiments": experiments,
+            "root_path_posix": str(env_params_dir.resolve()).replace("\\", "/"),
             "environment_file_name": environment_file_name,
             "model_file_name": model_file_name,
             "run_info_file_name": run_info_file_name,
+            "tag_remove_cell": TAG_REMOVE_CELL,
+            "tag_remove_input": TAG_REMOVE_INPUT,
+            "tag_remove_output": TAG_REMOVE_OUTPUT,
+            "env_id": run_table.env_id or "",
+            "env_summary": env_summary,
         }
 
         # Generate report
@@ -489,120 +670,111 @@ def generate_report(experiment_path: Path, output_path: Path | None = None) -> P
             f.write(report_content)
 
         logger.info(f"Comparative report generated: {report_path}")
-        generated_reports.append(report_path)
+        if progress is not None:
+            progress(f"Report written: {report_path}")
+
+        try:
+            artifacts = _render_and_build_artifacts(
+                report_path, run_table, execute=execute, render_pdf=render_pdf, progress=progress
+            )
+        except OSError as exc:
+            # A per-group write failure (e.g. a race between the preflight check above and this
+            # render, or an execution that outlives a lock appearing mid-run) must not abort the
+            # whole invocation: record it and keep generating the remaining groups (FR-028's
+            # robustness contract -- one locked file is not "invalid experiment data").
+            reason = f"cannot write report artifacts: {_sanitize_reason(str(exc))}"
+            logger.warning(f"{reason} in {env_params_dir}")
+            skipped_entry = SkippedGroup(path=env_params_dir, reason=reason)
+            skipped_groups.append(skipped_entry)
+            write_failed_groups.append(skipped_entry)
+            continue
+
+        generated_reports.append(artifacts)
 
     if not generated_reports:
+        if write_failed_groups:
+            # Every candidate group failed to write its output -- an OSError-shaped problem
+            # (Defect 3), never "invalid experiment data": the data loaded fine, only the
+            # destination could not be written (most commonly a locked PDF/notebook/HTML).
+            raise ArtifactWriteError("; ".join(f"{entry.path}: {entry.reason}" for entry in write_failed_groups))
         raise ValueError(
             "No comparative reports could be generated. "
             "Ensure there are at least 2 experiments per environment parametrization group."
         )
 
-    # If output_path was specified, return the first report, otherwise return list
-    if output_path:
-        return generated_reports[0] if generated_reports else experiment_path / "comparative_report.py"
-
-    # Return the first report as default (backward compatibility)
-    return generated_reports[0] if generated_reports else experiment_path / "comparative_report.py"
+    return ReportBundle(reports=generated_reports, skipped_groups=skipped_groups)
 
 
-def create_learning_plots(experiment_data: ExperimentData) -> dict[str, str]:
-    """
-    Create learning progress plots and return base64 encoded images.
-
-    Args:
-        experiment_data: Loaded experiment data
-
-    Returns:
-        Dictionary with plot names and base64 encoded image data
-    """
-    plots = {}
-
-    # Learning rewards over time
-    if experiment_data.learning_metrics:
-        plt.figure(figsize=(12, 8))
-
-        # Plot 1: Learning rewards
-        plt.subplot(2, 2, 1)
-        rewards = experiment_data.get_learning_rewards()
-        plt.plot(rewards, alpha=0.7, label="Episode Reward")
-
-        # Add moving average
-        window_size = min(50, len(rewards) // 10)
-        if window_size > 1:
-            moving_avg = pd.Series(rewards).rolling(window=window_size).mean()
-            plt.plot(moving_avg, label=f"Moving Average (window={window_size})", linewidth=2)
-
-        plt.title("Learning Progress - Rewards")
-        plt.xlabel("Episode")
-        plt.ylabel("Reward")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-
-        # Plot 2: Learning steps
-        plt.subplot(2, 2, 2)
-        steps = experiment_data.get_learning_steps()
-        plt.plot(steps, alpha=0.7, label="Episode Steps")
-
-        if window_size > 1:
-            moving_avg_steps = pd.Series(steps).rolling(window=window_size).mean()
-            plt.plot(moving_avg_steps, label=f"Moving Average (window={window_size})", linewidth=2)
-
-        plt.title("Learning Progress - Steps")
-        plt.xlabel("Episode")
-        plt.ylabel("Steps")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-
-        # Plot 3: Reward distribution
-        plt.subplot(2, 2, 3)
-        plt.hist(rewards, bins=30, alpha=0.7, edgecolor="black")
-        plt.title("Reward Distribution (Learning)")
-        plt.xlabel("Reward")
-        plt.ylabel("Frequency")
-        plt.grid(True, alpha=0.3)
-
-        # Plot 4: Steps distribution
-        plt.subplot(2, 2, 4)
-        plt.hist(steps, bins=30, alpha=0.7, edgecolor="black")
-        plt.title("Steps Distribution (Learning)")
-        plt.xlabel("Steps")
-        plt.ylabel("Frequency")
-        plt.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        # Save to base64
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png", dpi=150, bbox_inches="tight")
-        buffer.seek(0)
-        plots["learning_progress"] = base64.b64encode(buffer.getvalue()).decode()
-        plt.close()
-
-    # Testing results boxplot
-    if experiment_data.testing_metrics:
-        plt.figure(figsize=(10, 6))
-
-        testing_rewards = experiment_data.get_testing_rewards()
-        testing_steps = experiment_data.get_testing_steps()
-
-        plt.subplot(1, 2, 1)
-        plt.boxplot(testing_rewards, labels=["Testing Rewards"])
-        plt.title("Final Model Evaluation - Rewards")
-        plt.ylabel("Reward")
-        plt.grid(True, alpha=0.3)
-
-        plt.subplot(1, 2, 2)
-        plt.boxplot(testing_steps, labels=["Testing Steps"])
-        plt.title("Final Model Evaluation - Steps")
-        plt.ylabel("Steps")
-        plt.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        # Save to base64
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png", dpi=150, bbox_inches="tight")
-        plots["evaluation_boxplot"] = base64.b64encode(buffer.getvalue()).decode()
-        plt.close()
-
-    return plots
+__all__ = [
+    "MAX_DEPTH",
+    "TAG_REMOVE_CELL",
+    "TAG_REMOVE_INPUT",
+    "TAG_REMOVE_OUTPUT",
+    "TOP_TABLE_COLUMN_LABELS",
+    "ArtifactWriteError",
+    "ConstantMetric",
+    "HyperparameterEtaSquared",
+    "HyperparameterGridCardinality",
+    "HyperparameterGridDimension",
+    "ImportanceResult",
+    "ImportanceUnavailable",
+    "InteractionCell",
+    "InteractionGridResult",
+    "InteractionGridUnavailable",
+    "InteractionRankingResult",
+    "InteractionRankingUnavailable",
+    "MainEffectLevel",
+    "MainEffectsForHyperparameter",
+    "MainEffectsResult",
+    "MainEffectsUnavailable",
+    "MetricName",
+    "MetricRedundancy",
+    "PairwiseInteraction",
+    "RankShift",
+    "RankedRun",
+    "RankingMetric",
+    "RenderResult",
+    "ReplicationStatus",
+    "ReportArtifacts",
+    "ReportBundle",
+    "ReportManifest",
+    "RunRecord",
+    "RunTable",
+    "SelectedSeries",
+    "SeriesBucket",
+    "SeriesSelection",
+    "SkippedGroup",
+    "SkippedRun",
+    "TopDecileComparisonResult",
+    "TopDecileComparisonUnavailable",
+    "VarianceDecompositionEntry",
+    "VarianceDecompositionResult",
+    "VarianceDecompositionUnavailable",
+    "build_run_table",
+    "check_artifacts_writable",
+    "detect_constant_metrics",
+    "detect_redundant_metrics",
+    "find_experiment_directories",
+    "format_environment_summary",
+    "format_relative_run_path",
+    "format_series_labels",
+    "format_top_table_hyperparameter_cells",
+    "format_varying_hyperparameters",
+    "generate_individual_report",
+    "generate_report",
+    "hyperparameter_grid_cardinality",
+    "hyperparameter_importance",
+    "hyperparameter_main_effects",
+    "interaction_grid",
+    "interaction_ranking",
+    "is_valid_experiment_directory",
+    "max_performance_is_saturated",
+    "order_varying_hyperparameters_by_importance",
+    "rank_runs_by_performance",
+    "render_report",
+    "replication_status",
+    "select_series",
+    "select_top_table_metric_columns",
+    "top_decile_comparison",
+    "variance_decomposition",
+]

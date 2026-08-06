@@ -18,12 +18,15 @@ import gymnasium as gym
 from hercule.config import HerculeConfig, load_config_from_yaml
 from hercule.environnements import load_environment
 from hercule.models import RLModel, create_model
-from hercule.reports import generate_report
+from hercule.reports import _sanitize_reason, generate_report
 from hercule.supervisor import Supervisor
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
+
+    from hercule.reports import ReportBundle
 
 
 logger = logging.getLogger(__name__)
@@ -169,7 +172,14 @@ def play_interactive(
         env_with_render.close()
 
 
-def generate_experiment_report(experiment_path: Path, output_path: Path | None = None) -> Path:
+def generate_experiment_report(
+    experiment_path: Path,
+    output_path: Path | None = None,
+    *,
+    execute: bool = True,
+    render_pdf: bool = True,
+    progress: Callable[[str], None] | None = None,
+) -> ReportBundle:
     """Generate a comprehensive report for an experiment.
 
     This function orchestrates the report generation process, providing a clean
@@ -178,13 +188,24 @@ def generate_experiment_report(experiment_path: Path, output_path: Path | None =
     Args:
         experiment_path: Path to the experiment directory containing JSON files
         output_path: Optional path where to save the generated report
+        execute: Whether generated notebooks should be executed.
+        render_pdf: Whether a PDF should be rendered alongside each notebook.
+        progress: Optional sink for human-readable progress lines, so the CLI can satisfy a
+            progress cadence without `reports/` importing Click.
 
     Returns:
-        Path to the generated report file
+        ReportBundle describing every artifact produced and every group skipped. A group
+        whose PDF was skipped is still a successful group: `pdf=None` with a populated
+        `pdf_skip_reason`.
 
     Raises:
-        ValueError: If experiment data cannot be loaded
-        FileNotFoundError: If experiment directory doesn't exist
+        ValueError: If experiment data cannot be loaded, or no qualifying report group
+            was found. This means the *input* is the problem.
+        FileNotFoundError: If experiment directory doesn't exist.
+        OSError: If a generated artifact could not be written -- most commonly because its
+            destination (a `.pdf`/`.ipynb`/`.html`) is open in another program. This means the
+            *output* is the problem, never the experiment data, and must not be reported as
+            "invalid experiment data" (Defect 3).
     """
     if not experiment_path.exists():
         raise FileNotFoundError(f"Experiment directory not found: {experiment_path}")
@@ -195,9 +216,32 @@ def generate_experiment_report(experiment_path: Path, output_path: Path | None =
     logger.info(f"Generating report for experiment: {experiment_path}")
 
     try:
-        report_path = generate_report(experiment_path, output_path)
-        logger.info(f"Report generated successfully: {report_path}")
-        return report_path
+        bundle = generate_report(
+            experiment_path,
+            output_path,
+            execute=execute,
+            render_pdf=render_pdf,
+            progress=progress,
+        )
+        logger.info(f"Report generated successfully: {bundle.report_count} report(s)")
+        return bundle
+
+    except FileNotFoundError:
+        raise
+
+    except OSError as e:
+        # An OSError here means the experiment data loaded fine and only an *output* artifact
+        # could not be written -- almost always a locked file (a PDF preview tab, an editor).
+        # Kept as a distinct branch from the generic Exception handler below so the CLI can
+        # tell "your output file is locked" apart from "your experiment data is invalid"
+        # (Defect 3): the previous blanket handler mislabelled every such failure as the
+        # latter.
+        sanitized = _sanitize_reason(str(e))
+        logger.error(f"Cannot write report output for {experiment_path}: {sanitized}")
+        raise OSError(
+            f"Cannot write report output: {sanitized}. If a generated file (.pdf/.ipynb/.html) "
+            "is open in another program (e.g. a preview tab), close it and retry."
+        ) from e
 
     except Exception as e:
         logger.error(f"Failed to generate report for {experiment_path}: {e}")

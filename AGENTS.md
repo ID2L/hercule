@@ -28,7 +28,7 @@ src/hercule/
 ├── run/              # Runner (train/test loop), result storage
 ├── supervisor/       # Orchestrates learn & test phases across configs
 ├── controller/       # Business-logic entry points (learn, play, report)
-├── reports/          # Jinja2-based report generation (Jupytext .py)
+├── reports/          # Report generation: run table -> Jinja2/Jupytext .py -> execute -> HTML/PDF
 └── cli/              # Click CLI — thin wrapper over controller
 ```
 
@@ -144,6 +144,38 @@ List-valued hyperparameters produce the Cartesian product of all variants.
 | `hercule learn <config.yaml>`        | Train all model×env combinations         |
 | `hercule play <model.json> <env.json>` | Interactive visual playback            |
 | `hercule report <output_dir>`        | Generate analysis report (Jupytext .py)  |
+
+## Report Generation
+
+`hercule report <output_dir>` (`reports/generate_report()`) auto-detects a single run directory
+(one `report.py`) vs. a parent directory (recursive search, grouped by environment + env-params,
+one `comparative_report.py` per group). The pipeline:
+
+1. `build_run_table(root)` walks the run directories **once** and reads only `environment.json` +
+   `run_info.json` per run — `model.json` (stored weights) is **never opened**; `model_name` comes
+   from the run directory's parent name. The same function runs both at generation time and inside
+   the generated notebook, so there is exactly one loading loop regardless of run count.
+2. `select_series()` caps every multi-run chart at 9 ranked series (3 best/3 median/3 worst on
+   that chart's metric), deterministic via a `(-metric_value, directory_name)` sort key.
+3. `variance_decomposition()` (`reports/sensitivity.py`) attributes performance variance to each
+   model family's hyperparameters via eta-squared by grouping (ANOVA, no PCA, exact for a balanced
+   design) — one consolidated table of main effects and pure two-way interactions, plus a residual.
+   `hyperparameter_main_effects()` (mean AND max per level) and `top_decile_comparison()` (the same
+   decomposition on the top-scoring subset) round out the sensitivity analysis; every function
+   returns an "…Unavailable" result with a reason instead of raising when a family has too few
+   varying hyperparameters or runs.
+4. `render_report()` executes the generated `.py` (jupytext → `ExecutePreprocessor`), exports a
+   tag-filtered HTML (mechanical cells removed, informative output kept), and prints it to PDF via
+   a system Chromium-family browser — degrading to `pdf=None` + a reason, never an exception, when
+   no browser is available.
+
+`generate_report()` / `generate_individual_report()` / `controller.generate_experiment_report()`
+all return a `ReportBundle` (`reports: list[ReportArtifacts]`, `skipped_groups: list[SkippedGroup]`)
+rather than a bare `Path`, so every artifact produced and every candidate group skipped (e.g. too
+few runs to compare) is reported back to the caller. See `src/hercule/reports/README.md` for the
+full module breakdown and `CLAUDE.md` for the Windows/notebook-execution gotchas (`Path(__file__)`
+undefined in a kernel, `TagRemovePreprocessor.enabled` defaulting to `False`, PDF success judged by
+file size not return code, etc.).
 
 ## Key Patterns
 
