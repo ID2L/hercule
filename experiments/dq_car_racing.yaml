@@ -1,6 +1,12 @@
 # Deep Q-Learning on CarRacing-v3 (Box2D, pixel observations).
 #
-# Requires the Box2D extra: `uv add swig` then `uv add "gymnasium[box2d]"`.
+# Requires the Box2D extra: `uv add "gymnasium[box2d]"`.
+#
+# Deliberately a SINGLE parameter set (no list values, so no cartesian
+# expansion) plus the random baseline: 2 runs, ~15 min, meant for iterating on
+# the algorithm rather than for surveying a hyperparameter grid. Widen it into a
+# grid by turning any value below into a list once the learning curve is
+# trustworthy.
 #
 # Action space: CarRacing-v3 exposes two of them, selected by the `continuous`
 # kwarg -- Box(3,) when `continuous: true` (steer/gas/brake) and Discrete(5)
@@ -16,13 +22,14 @@
 # drive the sizing choices below:
 #   * the replay buffer holds two float32 (96, 96, 3) copies per transition
 #     (~216 KB), so `replay_buffer_size: 2000` already costs ~430 MB of RAM;
-#   * `model.json` is JSON, so one checkpoint of that network is ~45 MB --
+#   * `model.json` is JSON, so one checkpoint of that network is ~139 MB --
 #     hence a large `save_every_n_epoch`.
 #
-# Measured cost: ~8 s per 400-step training episode on CPU, so ~30 min per run
-# and ~4 h for the whole grid. `learn_max_epoch` is deliberately conservative:
-# runs are resumable, so raising it and re-running continues where it stopped,
-# whereas lowering it requires deleting the output directory.
+# Measured cost, warm, on CPU: ~2.9 s of environment stepping per 400-step
+# episode plus ~15.5 ms per gradient update, i.e. ~4.5 s per episode at
+# `step_modulo: 4` (100 updates) against ~10 s at `step_modulo: 1` (400). The
+# gradient updates dominate, so `step_modulo` is the knob that trades learning
+# per episode against wall-clock.
 
 name: "dq_car_racing"
 
@@ -38,9 +45,8 @@ environments:
         value: false
       - key: "lap_complete_percent"
         value: 0.95
-      # Default is 1000 steps. Shortened because `run_epoch` performs a single
-      # experience-replay gradient step per episode, so wall-clock per gradient
-      # update is dominated by episode length.
+      # Default is 1000. Shortened to keep the episode/checkpoint granularity
+      # workable; 400 steps still yields 100 gradient updates per episode.
       - key: "max_episode_steps"
         value: 400
 
@@ -51,32 +57,39 @@ models:
       - key: "seed"
         value: 42
 
-  # 2 x 2 x 2 = 8 DQN runs.
   - name: "deep_q_learning"
     hyperparameters:
       - key: "learning_rate"
-        value: [0.0001, 0.00025]
+        value: 0.00025
       - key: "discount_factor"
         value: 0.99
       - key: "epsilon"
         value: 1.0
+      # Multiplicative, per step: reaches epsilon_min after ~4600 steps, i.e.
+      # exploration is annealed within the first ~12 episodes.
       - key: "epsilon_decay"
         value: 0.0005
       - key: "epsilon_min"
-        value: [0.05, 0.1]
+        value: 0.1
       - key: "replay_buffer_size"
         value: 2000
       - key: "batch_size"
-        value: [32, 64]
+        value: 32
+      # Replay every 4 environment steps, as in the Atari DQN setup.
       - key: "step_modulo"
-        value: 1
+        value: 4
+      # ~2.5 episodes of lag between two target-network synchronisations.
+      - key: "target_update_frequency"
+        value: 1000
       - key: "weight_decay"
         value: 0.0
       - key: "seed"
         value: 42
 
-learn_max_epoch: 200
+# 150 episodes x 100 updates = ~15k gradient steps. Runs are resumable, so
+# raising this and re-running continues where it stopped.
+learn_max_epoch: 150
 test_epoch: 20
-# ~45 MB per checkpoint (JSON-serialized CNN), keep this coarse.
+# ~139 MB per checkpoint (JSON-serialized CNN), keep this coarse.
 save_every_n_epoch: 50
 base_output_dir: "outputs"
