@@ -1,0 +1,82 @@
+# Deep Q-Learning on CarRacing-v3 (Box2D, pixel observations).
+#
+# Requires the Box2D extra: `uv add swig` then `uv add "gymnasium[box2d]"`.
+#
+# Action space: CarRacing-v3 exposes two of them, selected by the `continuous`
+# kwarg -- Box(3,) when `continuous: true` (steer/gas/brake) and Discrete(5)
+# when `continuous: false` (do-nothing/left/right/gas/brake). DQN argmaxes over
+# a finite set of Q-values, so only the discrete variant is usable here;
+# `DeepQLearningModel.configure()` rejects a Box action space outright. The
+# continuous variant is therefore NOT declared below: environments x models is a
+# full cartesian product, so adding it would pair it with `deep_q_learning` too
+# and break every DQN run in this experiment.
+#
+# Observations are (96, 96, 3) uint8 frames, so `QNetwork` takes its CNN branch
+# (Conv 8x4 / 4x2 / 3x1 -> 4096 -> 512 -> 5, ~2.2M parameters). Two consequences
+# drive the sizing choices below:
+#   * the replay buffer holds two float32 (96, 96, 3) copies per transition
+#     (~216 KB), so `replay_buffer_size: 2000` already costs ~430 MB of RAM;
+#   * `model.json` is JSON, so one checkpoint of that network is ~45 MB --
+#     hence a large `save_every_n_epoch`.
+#
+# Measured cost: ~8 s per 400-step training episode on CPU, so ~30 min per run
+# and ~4 h for the whole grid. `learn_max_epoch` is deliberately conservative:
+# runs are resumable, so raising it and re-running continues where it stopped,
+# whereas lowering it requires deleting the output directory.
+
+name: "dq_car_racing"
+
+environments:
+  - name: "CarRacing-v3"
+    hyperparameters:
+      # Discrete(5) action space -- mandatory for DQN, see header.
+      - key: "continuous"
+        value: false
+      # Fixed track colours: domain randomization would change the visual
+      # statistics between episodes and there is no frame normalization here.
+      - key: "domain_randomize"
+        value: false
+      - key: "lap_complete_percent"
+        value: 0.95
+      # Default is 1000 steps. Shortened because `run_epoch` performs a single
+      # experience-replay gradient step per episode, so wall-clock per gradient
+      # update is dominated by episode length.
+      - key: "max_episode_steps"
+        value: 400
+
+models:
+  # Random-action baseline: gives the "did DQN learn anything at all" reference.
+  - name: "dummy"
+    hyperparameters:
+      - key: "seed"
+        value: 42
+
+  # 2 x 2 x 2 = 8 DQN runs.
+  - name: "deep_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: [0.0001, 0.00025]
+      - key: "discount_factor"
+        value: 0.99
+      - key: "epsilon"
+        value: 1.0
+      - key: "epsilon_decay"
+        value: 0.0005
+      - key: "epsilon_min"
+        value: [0.05, 0.1]
+      - key: "replay_buffer_size"
+        value: 2000
+      - key: "batch_size"
+        value: [32, 64]
+      - key: "step_modulo"
+        value: 1
+      - key: "weight_decay"
+        value: 0.0
+      - key: "seed"
+        value: 42
+
+learn_max_epoch: 200
+test_epoch: 20
+# ~45 MB per checkpoint (JSON-serialized CNN), keep this coarse.
+save_every_n_epoch: 50
+base_output_dir: "outputs"
