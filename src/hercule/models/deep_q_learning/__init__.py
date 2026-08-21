@@ -40,6 +40,9 @@ class DeepQLearningModelHyperParams(HyperParamsBase):
     step_modulo: int = Field(
         default=1, description="Number of steps before performing experience replay (default: 1, every step)"
     )
+    target_update_frequency: int = Field(
+        default=1000, description="Number of steps between two target-network synchronisations"
+    )
     weight_decay: float = Field(default=0.0, description="Weight decay (L2 regularization) for optimizer")
     seed: int = Field(default=42, description="Random seed")
 
@@ -382,6 +385,29 @@ class DeepQLearningModel(RLModel[DeepQLearningModelHyperParams]):
 
                 self._step_count += 1
 
+                # Experience replay, every step_modulo *environment steps*. This has to
+                # happen inside the step loop: performing it once per episode instead
+                # would bootstrap from a single end-of-episode update, i.e. one gradient
+                # step per episode return, which is Monte-Carlo control rather than the
+                # per-transition TD update DQN is defined by.
+                if (
+                    self._step_count % typed_params.step_modulo == 0
+                    and self._replay_buffer is not None
+                    and len(self._replay_buffer) >= typed_params.batch_size
+                ):
+                    self._train_step()
+
+                # The target network must LAG the online network, so its synchronisation
+                # is on its own period and never chained to _train_step(): copying the
+                # weights after every update would make the bootstrap target come from
+                # the current weights, which is exactly having no target network at all.
+                if (
+                    self._step_count % typed_params.target_update_frequency == 0
+                    and self._target_network is not None
+                    and self._q_network is not None
+                ):
+                    self._target_network.load_state_dict(self._q_network.state_dict())
+
                 obs = next_obs
             else:
                 if isinstance(next_observation, int):
@@ -393,22 +419,6 @@ class DeepQLearningModel(RLModel[DeepQLearningModelHyperParams]):
                         obs = obs.reshape(1)
 
         if train_mode:
-            typed_params = self.get_hyperparameters()
-
-            # Perform experience replay every step_modulo steps
-            # (default: every step, as per the 2013 paper)
-            if (
-                self._step_count % typed_params.step_modulo == 0
-                and self._replay_buffer is not None
-                and len(self._replay_buffer) >= typed_params.batch_size
-            ):
-                # Perform one training step with experience replay
-                self._train_step()
-
-                # Update target network after each replay (every step_modulo steps)
-                if self._target_network is not None and self._q_network is not None:
-                    self._target_network.load_state_dict(self._q_network.state_dict())
-
             self._epoch_count += 1
 
         return EpochResult(
