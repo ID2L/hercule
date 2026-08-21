@@ -2,11 +2,17 @@
 #
 # Requires the Box2D extra: `uv add "gymnasium[box2d]"`.
 #
-# Deliberately a SINGLE parameter set (no list values, so no cartesian
-# expansion) plus the random baseline: 2 runs, ~15 min, meant for iterating on
-# the algorithm rather than for surveying a hyperparameter grid. Widen it into a
-# grid by turning any value below into a list once the learning curve is
-# trustworthy.
+# A 2x2 balanced grid (learning_rate x target_update_frequency) against the
+# random baseline: 5 runs, ~55 min. Balanced and factorial on purpose -- the
+# report's variance decomposition is exact only on a full cartesian design, so
+# four hand-picked disparate parameter sets would make its eta-squared numbers
+# meaningless. Both axes probe the replay fix: learning_rate is the dominant
+# factor measured on other DQN families here, and target_update_frequency is the
+# target-network lag that the fix gave its own period.
+#
+# The design is SATURATED (one run per cell, single seed), so interaction and
+# run-to-run noise are mathematically inseparable -- read the numbers as a
+# direction to explore, not as a measurement.
 #
 # Action space: CarRacing-v3 exposes two of them, selected by the `continuous`
 # kwarg -- Box(3,) when `continuous: true` (steer/gas/brake) and Discrete(5)
@@ -60,7 +66,7 @@ models:
   - name: "deep_q_learning"
     hyperparameters:
       - key: "learning_rate"
-        value: 0.00025
+        value: [0.0001, 0.00025]
       - key: "discount_factor"
         value: 0.99
       - key: "epsilon"
@@ -78,9 +84,9 @@ models:
       # Replay every 4 environment steps, as in the Atari DQN setup.
       - key: "step_modulo"
         value: 4
-      # ~2.5 episodes of lag between two target-network synchronisations.
+      # Target-network lag, in steps: ~0.6 vs ~2.5 episodes at 400 steps each.
       - key: "target_update_frequency"
-        value: 1000
+        value: [250, 1000]
       - key: "weight_decay"
         value: 0.0
       - key: "seed"
