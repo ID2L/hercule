@@ -359,6 +359,11 @@ class DeepQLearningModel(RLModel[DeepQLearningModelHyperParams]):
             self._q_network.parameters(), lr=typed_params.learning_rate, weight_decay=typed_params.weight_decay
         )
 
+    def begin_episode(self) -> None:
+        """Drop the frame history so a stacked state never spans two episodes."""
+        self._frames.clear()
+        self._predict_frames.clear()
+
     def _to_frame(self, observation: np.ndarray | int) -> np.ndarray:
         """
         Normalise an environment observation to one array, PRESERVING its dtype.
@@ -472,7 +477,9 @@ class DeepQLearningModel(RLModel[DeepQLearningModelHyperParams]):
         done = False
 
         # Prime the frame history by repeating the first observation, so a stacked
-        # state is well-defined from the very first step of the episode.
+        # state is well-defined from the very first step and carries nothing from
+        # the previous episode.
+        self.begin_episode()
         obs = self._prime(self._frames, self._to_frame(observation))
 
         while not done:
@@ -677,14 +684,11 @@ class DeepQLearningModel(RLModel[DeepQLearningModelHyperParams]):
             observation: Current observation from the environment
 
         Note:
-            Frame stacking needs a history, but `RLModel` has no episode-reset hook
-            and callers (e.g. `controller.play_interactive`) drive `env.reset()`
-            themselves, so an episode boundary is not observable from here. The
-            history is therefore carried across boundaries: for the first
-            `frame_stack` steps of a new episode the stack still holds frames from
-            the previous one. That is `frame_stack` steps out of an episode's
-            length, and the alternative -- adding a lifecycle method to `RLModel` --
-            is a Root Class Registry change requiring a constitution review.
+            Frame stacking needs a history, and an episode boundary is NOT observable
+            from a single observation, so callers driving their own episode loop must
+            call `begin_episode()` right after `env.reset()`. This method then
+            re-primes the history from the episode's first observation instead of
+            carrying frames over from the previous one.
 
         Returns:
             Selected action index

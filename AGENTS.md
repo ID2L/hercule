@@ -66,7 +66,13 @@ and, if semantics change, a constitutional amendment.
 4. Set `model_name: ClassVar[str]` and `hyperparams_class: ClassVar[...]`.
 5. Implement all abstract methods: `act()`, `run_epoch()`, `predict()`,
    `_export()`, `_import()`.
-6. **No other file needs modification** — `get_available_models()` discovers
+6. If — and only if — the policy carries state ACROSS steps within an episode
+   (observation stacking, recurrent policy), override `begin_episode()` to reset
+   it. It is concrete with a default no-op, so a policy that depends only on the
+   current observation ignores it. Skipping it when you do need it is silent:
+   `predict()` sees one observation and cannot detect an episode boundary, so the
+   state would span two episodes.
+7. **No other file needs modification** — `get_available_models()` discovers
    the new sub-package automatically.
 
 ### RLModel Abstract Interface

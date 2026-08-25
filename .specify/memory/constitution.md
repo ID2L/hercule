@@ -1,20 +1,31 @@
 <!-- Sync Impact Report
-Version change: 0.0.0 → 1.0.0 (initial ratification)
-Added principles:
-  - I. Generic Algorithm Architecture (NON-NEGOTIABLE)
-  - II. Configuration-Driven Design
-  - III. Gymnasium-First Integration
-  - IV. Module Separation
-  - V. Modern Python & Code Quality
-  - VI. Extensibility & Discoverability
-Added sections:
-  - Root Class Registry (critical reference)
-  - Development Workflow
+Version change: 1.0.0 → 1.1.0 (MINOR: additive lifecycle hook on RLModel)
+Modified principles:
+  - I. Generic Algorithm Architecture: the per-episode lifecycle now includes
+    `begin_episode()` on `RLModel`.
+Added sections: none
+Removed sections: none
+Rationale:
+  `predict()` receives a single observation and nothing else, so a model whose
+  policy carries state ACROSS steps (observation stacking, recurrent policy)
+  cannot detect an episode boundary. Without a hook that state silently spans
+  two episodes and the policy acts on an observation that never existed. This
+  was a real defect in `deep_q_learning`'s frame stacking, in `predict()` and
+  therefore in `hercule play`; `run_epoch()` was already resetting correctly.
+Backward compatibility: ADDITIVE, no migration needed. `begin_episode()` is
+  concrete with a default no-op body, not abstract, so no existing model needs
+  changing (`TDModel`, `simple_q_learning`, `simple_sarsa`, `dummy` are
+  unaffected) and no existing signature moved.
+Callers updated: `RLModel.evaluate()`, `controller.play_interactive()`,
+  `DeepQLearningModel.run_epoch()`.
 Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ (Constitution Check gates defined)
+  - .specify/templates/plan-template.md ✅ (no conflict)
   - .specify/templates/spec-template.md ✅ (no conflict)
   - .specify/templates/tasks-template.md ✅ (no conflict)
 Follow-up TODOs: none
+
+Previous: 0.0.0 → 1.0.0 (initial ratification) added principles I-VI, the Root
+Class Registry and the Development Workflow section.
 -->
 
 # Hercule Constitution
@@ -38,6 +49,14 @@ factor common behaviour, but they MUST themselves extend `RLModel`.
   `run_epoch()`, `predict()`, `_export()`, `_import()`.
 - The `configure() → save() → load()` lifecycle defined by `RLModel` MUST NOT
   be bypassed; `save()` and `load()` are `@final`.
+- **Per-episode state**: a model whose policy carries state ACROSS steps within
+  an episode (observation stacking, recurrent policy) MUST reset that state in
+  `begin_episode()`, and every caller driving its own episode loop MUST call
+  `begin_episode()` right after `env.reset()`. `begin_episode()` is concrete
+  with a default no-op body, so a model whose policy depends only on the current
+  observation needs no change. This exists because `predict()` receives one
+  observation and nothing else: an episode boundary is not observable from it,
+  so without the hook a stacked state spans two episodes.
 - **Any modification to a root class listed in the Root Class Registry below
   MUST trigger a review of this constitution and, if semantics change, a
   constitutional amendment (MINOR or MAJOR version bump).**
@@ -163,4 +182,4 @@ altered lifecycle contracts) MUST trigger a constitution review.
 - Use `AGENTS.md` at the repository root for runtime AI-agent development
   guidance.
 
-**Version**: 1.0.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-02-26
+**Version**: 1.1.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-08-25

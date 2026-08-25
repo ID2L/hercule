@@ -16,6 +16,7 @@ import pytest
 import torch
 
 from hercule.models.deep_q_learning import DeepQLearningModel
+from hercule.models.dummy import DummyModel
 
 
 IMAGE_SIDE = 48
@@ -201,3 +202,77 @@ def test_saved_stacked_model_loads_into_a_default_configured_model() -> None:
         assert torch.equal(fresh._q_network.state_dict()[key], value)
     # And it can actually act afterwards.
     assert 0 <= fresh.predict(env.reset()[0]) < env.action_space.n
+
+
+@pytest.mark.unit
+def test_begin_episode_clears_the_frame_history() -> None:
+    """A stacked state must never span two episodes."""
+    env = _ImageEnv()
+    model = _configure(env, frame_stack=3)
+
+    obs, _ = env.reset()
+    model.predict(obs)
+    for _ in range(3):
+        obs, _, _, _, _ = env.step(0)
+        model.predict(obs)
+    assert len(model._predict_frames) == 4
+
+    model.begin_episode()
+
+    assert len(model._predict_frames) == 0, "history must be dropped at an episode boundary"
+
+
+@pytest.mark.unit
+def test_predict_reprimes_after_begin_episode() -> None:
+    """After a boundary the stack repeats the new episode's first frame only.
+
+    The previous behaviour carried frames over, so the first `frame_stack` steps
+    of an episode were decided on a state mixing two different episodes.
+    """
+    env = _ImageEnv()
+    model = _configure(env, frame_stack=3)
+
+    # Episode 1: advance far enough that the history is full of high step indices.
+    obs, _ = env.reset()
+    model.predict(obs)
+    for _ in range(5):
+        obs, _, _, _, _ = env.step(0)
+        model.predict(obs)
+    assert {int(f[0, 0, 0]) for f in model._predict_frames} != {0}
+
+    # Episode 2 starts on an all-zero frame.
+    model.begin_episode()
+    obs, _ = env.reset()
+    model.predict(obs)
+
+    stacked = model._stack(model._predict_frames)
+    assert stacked.shape == (IMAGE_SIDE, IMAGE_SIDE, 12)
+    assert not stacked.any(), "the first state of a new episode must hold only its own frame"
+
+
+@pytest.mark.unit
+def test_run_epoch_never_leaks_frames_between_episodes() -> None:
+    """run_epoch drives its own loop, so it must honour the same contract."""
+    env = _ImageEnv()
+    model = _configure(env, frame_stack=3, epsilon=0.0, epsilon_min=0.0)
+
+    model.run_epoch(train_mode=True)
+    model.run_epoch(train_mode=True)
+
+    # The first transition of the second episode is the oldest one whose state is
+    # entirely made of the priming frame; a leak would show a non-zero tail.
+    first_of_second_episode = model._replay_buffer.buffer[EPISODE_LENGTH]
+    state = first_of_second_episode[0]
+    assert not state.any(), "first state of the second episode carries earlier frames"
+
+
+@pytest.mark.unit
+def test_begin_episode_is_a_noop_by_default() -> None:
+    """Stateless models must be unaffected: the hook is additive."""
+    env = _ImageEnv()
+    model = DummyModel()
+    model.configure(env, {"seed": 42})  # DummyModel.configure returns None, not True
+
+    model.begin_episode()  # must not raise
+
+    assert 0 <= model.predict(env.reset()[0]) < env.action_space.n

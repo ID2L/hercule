@@ -169,6 +169,21 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
         """
         pass
 
+    def begin_episode(self) -> None:
+        """
+        Signal the start of a new episode, before its first observation is fed.
+
+        The default implementation does nothing: a policy that depends only on the
+        current observation has no per-episode state. Models carrying state ACROSS
+        steps -- observation stacking, recurrent policies -- MUST override this and
+        reset that state here, and every caller driving its own episode loop MUST
+        call it right after `env.reset()`.
+
+        Without it, `predict()` cannot tell where an episode begins: it receives one
+        observation and nothing else, so a stacked state would silently span two
+        episodes and the policy would act on an observation that never existed.
+        """
+
     @final
     def check_environment_or_raise(self) -> gym.Env:
         if self.env is None:
@@ -282,12 +297,16 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
 
         for _ in range(num_episodes):
             observation, _ = self.env.reset()
+            self.begin_episode()
             episode_reward = 0.0
             episode_length = 0
             done = False
 
             while not done:
-                action = self.act(observation, training=False)
+                # predict(), not act(): it is the stateful inference entry point, so
+                # a model with observation stacking gets its history maintained. For
+                # a stateless model predict() is exactly act(training=False).
+                action = self.predict(observation)
                 observation, reward, terminated, truncated, _ = self.env.step(action)
                 done = terminated or truncated
                 episode_reward += float(reward)
