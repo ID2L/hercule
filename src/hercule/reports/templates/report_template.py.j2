@@ -131,9 +131,7 @@ if obs_space.type == "Discrete":
 elif obs_space.type == "Box":
     print(f"- **Space Type:** Continuous (Box)")
     print(f"- **Shape:** {obs_space.shape}")
-    if obs_space.low is not None and obs_space.high is not None:
-        print(f"- **Lower bounds:** {obs_space.low}")
-        print(f"- **Upper bounds:** {obs_space.high}")
+    print(f"- **Bounds:** {obs_space.describe_bounds()}")
 else:
     print(f"- **Shape:** {obs_space.shape}")
 
@@ -149,10 +147,7 @@ if action_space.type == "Discrete":
 elif action_space.type == "Box":
     print(f"- **Space Type:** Continuous (Box)")
     print(f"- **Shape:** {action_space.shape}")
-    if action_space.low is not None and action_space.high is not None:
-        print(f"- **Lower bounds:** {action_space.low}")
-        print(f"- **Upper bounds:** {action_space.high}")
-        print(f"- **Action range:** Each action dimension is bounded by the above limits")
+    print(f"- **Bounds:** {action_space.describe_bounds()}")
 else:
     print(f"- **Shape:** {action_space.shape}")
 
