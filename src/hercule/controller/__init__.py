@@ -137,6 +137,10 @@ def play_interactive(
                 break
 
             obs, _ = env_with_render.reset()
+            # Required by the RLModel contract: a model carrying state across steps
+            # (observation stacking, recurrent policy) cannot see an episode boundary
+            # from predict() alone and would act on a state spanning two episodes.
+            model.begin_episode()
             episode_reward: float = 0.0
             done = False
             episode_count += 1

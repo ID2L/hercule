@@ -53,8 +53,38 @@ class DiscreteSpaceInfo(SpaceInfo):
 class BoxSpaceInfo(SpaceInfo):
     """Information about a box (continuous) action/observation space."""
 
-    low: list[float] | None = None
-    high: list[float] | None = None
+    # NOT list[float]: a Box's bounds carry the space's own shape, so an image
+    # observation space gives a nested (H, W, C) list. Declaring them flat made
+    # EnvironmentInspector.get_environment_info() raise a ValidationError on every
+    # pixel environment -- 192 errors on CarRacing's Box(0, 255, (96, 96, 3)).
+    low: list | None = None
+    high: list | None = None
+
+    def describe_bounds(self) -> str:
+        """
+        Summarise the bounds in one line, never dumping them.
+
+        An image space holds one bound per pixel-channel -- 27 648 numbers for a
+        (96, 96, 3) frame. Printing them verbatim floods a report, and a line
+        longer than the printable page width is CLIPPED rather than wrapped by the
+        PDF export, so the dump would also silently truncate. Uniform bounds (the
+        normal case for images) collapse to a single interval; a short vector is
+        still printed in full, since that is genuinely informative.
+
+        Returns:
+            A one-line description, e.g. "[0, 255] uniform over shape (96, 96, 3)".
+        """
+        if self.low is None or self.high is None:
+            return "unbounded"
+
+        low = np.asarray(self.low, dtype=float)
+        high = np.asarray(self.high, dtype=float)
+
+        if low.size > 1 and np.all(low == low.flat[0]) and np.all(high == high.flat[0]):
+            return f"[{low.flat[0]:g}, {high.flat[0]:g}] uniform over shape {tuple(low.shape)}"
+        if low.ndim <= 1 and low.size <= 8:
+            return f"low={np.array2string(low, precision=3)}, high={np.array2string(high, precision=3)}"
+        return f"[{low.min():g}, {high.max():g}] overall, per-element bounds over shape {tuple(low.shape)} (not listed)"
 
 
 class EnvironmentSpecInfo(BaseModel):

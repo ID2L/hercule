@@ -1,0 +1,140 @@
+# Deep Q-Learning on CarRacing-v3 (Box2D, pixel observations).
+#
+# Requires the Box2D extra: `uv add "gymnasium[box2d]"`.
+#
+# Overnight run: 4 runs, ~9.4 h measured. Sized from measured per-episode cost
+# at 1000 steps with frame_stack 3 -- 13.4 s per DQN training episode
+# (step_modulo 4), 9.1 s per test episode, 5.9 s per dummy episode.
+#
+#   3 x 700 x 13.4 s  = 7.8 h   DQN learning
+#       700 x  5.9 s  = 1.1 h   dummy baseline
+#   4 x  50 x ~9 s    = 0.5 h   test phases
+#
+# Reference values below follow published DQN settings rather than guesses:
+# Stable-Baselines3's DQN defaults (learning_rate 1e-4, batch 32, epsilon
+# 1.0 -> 0.05), the Nature 2015 DQN (replay every 4 steps, gamma 0.99), and
+# CarRacing-v3-specific DQN implementations (gamma 0.99, epsilon_min 0.05,
+# target updates every few hundred to few thousand steps, ~2000 episodes to
+# convergence, with reported learning becoming visible around episode 400-500).
+#
+# Action space: CarRacing-v3 exposes two of them, selected by the `continuous`
+# kwarg -- Box(3,) when `continuous: true` (steer/gas/brake) and Discrete(5)
+# when `continuous: false` (do-nothing/left/right/gas/brake). DQN argmaxes over
+# a finite set of Q-values, so only the discrete variant is usable here;
+# `DeepQLearningModel.configure()` rejects a Box action space outright. The
+# continuous variant is therefore NOT declared below: environments x models is a
+# full cartesian product, so adding it would pair it with `deep_q_learning` too
+# and break every DQN run in this experiment.
+#
+# TWO REMAINING DEVIATIONS from the reference implementations, both forced by
+# the framework rather than chosen -- they cap what this run can reach:
+#   * No grayscale, no downscale, no frame skip. References use 84x84 grayscale
+#     with 4-frame skip; observations here are the raw (96, 96, 3) RGB frames
+#     and every step is a decision.
+#   * `replay_buffer_size: 5000` against 50k-1M in the literature. Measured at
+#     216 KB per transition with frame_stack 3, that is ~1.03 GB of RAM; 50k
+#     would need ~10.3 GB. A memory ceiling, not a tuning choice.
+#
+# Frame stacking was the third and hardest of these and is now available:
+# `frame_stack: 3` below gives the agent the current frame plus the 3 preceding
+# ones, so velocity becomes observable -- a single frame does not carry it, which
+# is why every published CarRacing agent stacks 4 frames. Measured cost of
+# turning it on: +11% wall clock (13.4 s vs 12.1 s per episode) and no extra
+# memory at all, since observations are now stored in their native uint8 rather
+# than up-cast to float32 (54 KB per transition unstacked, 216 KB with 4 frames
+# -- exactly what ONE unstacked float32 transition used to cost).
+#
+# Observations are also rescaled onto the range declared by the observation space
+# itself (0-255 here, so effectively /255). That is derived from the space, not
+# hard-coded, so a bounded Box uses its own bounds, a Discrete space is scaled by
+# its cardinality, and an unbounded Box is left untouched.
+#
+# `model.json` is JSON, so one checkpoint of this CNN (~2.2M parameters) is
+# ~139 MB; `save_every_n_epoch: 50` bounds the loss from an overnight crash to
+# ~10 min of training for ~16 rewrites per run.
+
+name: "dq_car_racing"
+
+environments:
+  - name: "CarRacing-v3"
+    hyperparameters:
+      # Discrete(5) action space -- mandatory for DQN, see header.
+      - key: "continuous"
+        value: false
+      # Fixed track colours: domain randomization would change the visual
+      # statistics between episodes and there is no frame normalization here.
+      - key: "domain_randomize"
+        value: false
+      - key: "lap_complete_percent"
+        value: 0.95
+      # Full episodes (the env default), up from the 400 used while iterating:
+      # a lap is only completable over the full horizon, and the score is then
+      # comparable to published CarRacing numbers.
+      - key: "max_episode_steps"
+        value: 1000
+
+models:
+  # Random-action baseline. Re-measured rather than reused from the 400-step
+  # runs: the horizon changed, so the old baseline is not comparable.
+  - name: "dummy"
+    hyperparameters:
+      - key: "seed"
+        value: 42
+
+  # Single axis swept: target_update_frequency measured 88.6% eta-squared on the
+  # previous 2x2 grid, by far the dominant factor, and its two tested levels
+  # bracketed a cliff (250 scored below the random baseline at test time, 1000
+  # well above it). These three levels probe whether more lag keeps helping,
+  # which is also where the published settings sit. learning_rate is held at the
+  # Stable-Baselines3 default, which was already the better of the two levels
+  # tested (11.3% eta-squared).
+  - name: "deep_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.0001
+      - key: "discount_factor"
+        value: 0.99
+      - key: "epsilon"
+        value: 1.0
+      # Multiplicative per step. 1.3e-5 reaches epsilon_min after ~230k steps,
+      # i.e. ~230 episodes, ~31% of the run. The previous 5e-4 annealed in ~4600
+      # steps: under 1% of this budget, which would waste it almost entirely.
+      - key: "epsilon_decay"
+        value: 0.000013
+      - key: "epsilon_min"
+        value: 0.05
+      # Memory ceiling, see header.
+      - key: "replay_buffer_size"
+        value: 5000
+      - key: "batch_size"
+        value: 32
+      # Replay every 4 environment steps, as in the Nature 2015 DQN.
+      - key: "step_modulo"
+        value: 4
+      # Target-network lag in steps: 1 / 2.5 / 5 episodes at 1000 steps each.
+      - key: "target_update_frequency"
+        value: [1000, 2500, 5000]
+      - key: "weight_decay"
+        value: 0.0
+      # Current frame plus the 3 preceding, i.e. 4 frames -- the stack size every
+      # published CarRacing agent uses. NB this parameter counts PREVIOUS frames,
+      # unlike gymnasium's FrameStackObservation and SB3 where it is the total.
+      - key: "frame_stack"
+        value: 3
+      # Single seed: the design stays SATURATED, so interaction and run-to-run
+      # noise remain inseparable. Replication would cost 3x the budget; depth
+      # was preferred over it here.
+      - key: "seed"
+        value: 42
+
+# 700 episodes x 1000 steps = 700k environment steps, ~175k gradient updates per
+# run, against 15k in the previous configuration. Trimmed from 750 to absorb
+# frame stacking's +11% and keep the night under ~9.5 h. Runs are resumable, so
+# raising this and re-running continues where it stopped.
+learn_max_epoch: 700
+# 50 test episodes, up from 20: `performance` is `mean_testing_reward`, and
+# 20 episodes made it the noisiest metric in the table while also being the one
+# the ranking uses.
+test_epoch: 50
+save_every_n_epoch: 50
+base_output_dir: "outputs"

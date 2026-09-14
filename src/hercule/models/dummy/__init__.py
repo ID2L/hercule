@@ -8,6 +8,7 @@ import numpy as np
 from pydantic import Field, PrivateAttr
 
 from hercule.config import HyperParamsBase, ParameterValue
+from hercule.environnements.spaces_checker import SpaceKind
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
 
@@ -33,6 +34,13 @@ class DummyModel(RLModel[DummyModelHyperParams]):
     model_name: ClassVar[str] = "dummy"
     # Type-safe hyperparameters class
     hyperparams_class: ClassVar[type[HyperParamsBase]] = DummyModelHyperParams
+    # `act()` only ever calls `self._action_space.sample()` and never inspects the
+    # observation, so every (observation_kind, action_kind) pair is supported -- this
+    # is the one model in the registry with a broad declaration, documented here
+    # rather than left as a permissive default on `RLModel` itself.
+    supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]] = frozenset(
+        (observation_kind, action_kind) for observation_kind in SpaceKind for action_kind in SpaceKind
+    )
 
     @classmethod
     def default_hyperparameters_typed(cls) -> DummyModelHyperParams:
