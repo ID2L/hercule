@@ -96,7 +96,7 @@ def test_stacked_state_holds_the_previous_frames() -> None:
 
     # Each stored frame is uniformly filled with its own step index, so the
     # channel triplets of a stacked state read as consecutive step indices.
-    state, _, _, next_state, _ = model._replay_buffer.buffer[-1]
+    state, _, _, next_state, _, _ = model._replay_buffer.buffer[-1]
     per_frame = [state[0, 0, 3 * i] for i in range(4)]
     assert per_frame == sorted(per_frame), f"frames out of order: {per_frame}"
     assert per_frame[-1] + 1 == next_state[0, 0, 9], "next_state must advance by exactly one frame"
@@ -110,7 +110,7 @@ def test_replay_buffer_keeps_the_native_dtype() -> None:
     model = _configure(env, frame_stack=3)
     model.run_epoch(train_mode=True)
 
-    state, _, _, _, _ = model._replay_buffer.buffer[-1]
+    state, _, _, _, _, _ = model._replay_buffer.buffer[-1]
     assert state.dtype == np.uint8
     # 4 frames of uint8 cost the same as 1 frame of float32 did.
     assert state.nbytes == IMAGE_SIDE * IMAGE_SIDE * 3 * 4
