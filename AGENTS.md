@@ -64,6 +64,14 @@ and, if semantics change, a constitutional amendment.
 3. Create a class inheriting from `RLModel` (or `TDModel` for tabular TD
    algorithms).
 4. Set `model_name: ClassVar[str]` and `hyperparams_class: ClassVar[...]`.
+4b. Set `supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]]` — the
+   `(observation_kind, action_kind)` pairs the algorithm accepts, using `SpaceKind`
+   from `hercule.environnements.spaces_checker`. **There is no default**, and a
+   concrete model that omits it is *not registered* by `get_available_models()`.
+   That is deliberate: a permissive default would let a new model be paired with any
+   environment and fail later with an unrelated error. `Supervisor` checks the pair
+   before calling `configure()`, skips a mismatched combination with a message naming
+   both the expected and the actual kinds, and carries on with the rest.
 5. Implement all abstract methods: `act()`, `run_epoch()`, `predict()`,
    `_export()`, `_import()`.
 6. If — and only if — the policy carries state ACROSS steps within an episode

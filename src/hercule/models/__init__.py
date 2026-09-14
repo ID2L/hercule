@@ -1,6 +1,7 @@
 """Abstract base classes and interfaces for reinforcement learning models."""
 
 import importlib
+import inspect
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -12,6 +13,7 @@ import numpy as np
 from pydantic import ConfigDict, Field
 
 from hercule.config import BaseConfig, HyperParameter, HyperParamsBase, ParameterValue
+from hercule.environnements.spaces_checker import SpaceKind, classify_space
 from hercule.models.epoch_result import EpochResult
 
 
@@ -42,6 +44,14 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
     model_name: ClassVar[str]
     # Class attribute for the hyperparameters type class (for type-safe access)
     hyperparams_class: ClassVar[type[HyperParamsBase] | None] = None
+    # The (observation_kind, action_kind) pairs this model can be configured on.
+    #
+    # Deliberately declared WITHOUT a default. A permissive default ("supports
+    # everything") would recreate the silent-accept this mechanism exists to remove:
+    # a new model whose author forgets the declaration would be paired with any
+    # environment and fail later with an unrelated error. `get_available_models()`
+    # refuses to register a concrete model that does not declare it.
+    supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]]
 
     # Environment field (Pydantic field to allow gym.Env type)
     env: gym.Env | None = Field(default=None, description="Gymnasium environment")
@@ -154,6 +164,42 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
             msg = f"Model {self.model_name} not configured or hyperparams_class not defined. Call configure() first."
             raise ValueError(msg)
         return self._typed_hyperparameters
+
+    @classmethod
+    def supports_environment(cls, env: gym.Env) -> bool:
+        """
+        Whether this model declares support for the environment's space pair.
+
+        Args:
+            env: The environment the model would be configured on.
+
+        Returns:
+            True when `(observation_kind, action_kind)` is in `supported_spaces`.
+
+        Raises:
+            AttributeError: If the class never declared `supported_spaces`. That is a
+                programming error, not a runtime condition, so it is not softened into
+                a permissive True.
+        """
+        pair = (classify_space(env.observation_space), classify_space(env.action_space))
+        return pair in cls.supported_spaces
+
+    @classmethod
+    def describe_space_mismatch(cls, env: gym.Env) -> str:
+        """
+        One line naming what the model expects and what the environment offers.
+
+        The message has to carry both halves: "requires a discrete action space" alone
+        does not tell the reader what the environment actually provides, which is the
+        thing they need in order to fix their YAML.
+        """
+        observation_kind = classify_space(env.observation_space)
+        action_kind = classify_space(env.action_space)
+        expected = ", ".join(sorted(f"(observation={o}, action={a})" for o, a in cls.supported_spaces))
+        return (
+            f"Model '{cls.model_name}' does not support this environment: "
+            f"got (observation={observation_kind}, action={action_kind}), supports {expected}"
+        )
 
     @abstractmethod
     def act(self, observation: np.ndarray | int, training: bool = False) -> int | float | np.ndarray:
@@ -336,12 +382,46 @@ class RLModel(BaseConfig, ABC, Generic[HyperParamsType]):
         return self.__str__()
 
 
+def _is_registrable(attr: object) -> bool:
+    """
+    Whether a scanned module attribute should be registered as an available model.
+
+    A registrable attribute is a concrete `RLModel` subclass (not `RLModel` itself,
+    not abstract) that declares its own `model_name` -- never inherited from an
+    abstract parent, since that would collapse every subclass onto the same name --
+    and declares `supported_spaces`, own or inherited (e.g. `simple_q_learning` and
+    `simple_sarsa` share the declaration on `TDModel`).
+
+    Args:
+        attr: Candidate object found while scanning a models subpackage module.
+
+    Returns:
+        True if `attr` should be registered as an available model.
+    """
+    if not (isinstance(attr, type) and issubclass(attr, RLModel) and attr is not RLModel):
+        return False
+    if inspect.isabstract(attr):
+        return False
+    if "model_name" not in attr.__dict__:
+        logger.warning(f"Skipping '{attr.__module__}.{attr.__name__}': no own 'model_name' declared.")
+        return False
+    if not hasattr(attr, "supported_spaces"):
+        logger.warning(
+            f"Skipping model '{attr.__dict__['model_name']}' ({attr.__module__}.{attr.__name__}): "
+            "no 'supported_spaces' declared."
+        )
+        return False
+    return True
+
+
 def get_available_models() -> dict[str, type[RLModel]]:
     """
     Discover and import all available models dynamically.
 
     This function scans the models directory for subdirectories containing
-    model implementations and imports them automatically.
+    model implementations and imports them automatically. Only concrete
+    `RLModel` subclasses that declare their own `model_name` and a
+    `supported_spaces` declaration are registered; see `_is_registrable`.
 
     Returns:
         Dictionary mapping model names to their class types
@@ -353,33 +433,27 @@ def get_available_models() -> dict[str, type[RLModel]]:
 
     # Iterate through all subdirectories in the models directory
     for item in models_dir.iterdir():
-        if item.is_dir() and not item.name.startswith("_") and item.name != "__pycache__":
-            module_name = f"hercule.models.{item.name}"
+        if not (item.is_dir() and not item.name.startswith("_") and item.name != "__pycache__"):
+            continue
 
-            try:
-                # Import the module
-                module = importlib.import_module(module_name)
+        module_name = f"hercule.models.{item.name}"
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError as e:
+            logger.warning(f"Failed to import module {module_name}: {e}")
+            continue
+        except Exception as e:
+            logger.warning(f"Error processing module {module_name}: {e}")
+            continue
 
-                # Look for classes that inherit from RLModel
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
+        for attr_name in dir(module):
+            attr = getattr(module, attr_name)
+            if not _is_registrable(attr):
+                continue
 
-                    # Check if it's a class that inherits from RLModel
-                    if isinstance(attr, type) and issubclass(attr, RLModel) and attr != RLModel:
-                        # Use the model_name class attribute or fallback to class name
-                        # Check in class __dict__ first to avoid getting abstract parent's model_name
-                        if "model_name" in attr.__dict__:
-                            model_name = attr.__dict__["model_name"]
-                        else:
-                            model_name = getattr(attr, "model_name", attr.__name__.lower())
-                        models_dict[model_name] = attr
-
-                        logger.debug(f"Discovered model: {model_name} -> {attr.__name__}")
-
-            except ImportError as e:
-                logger.warning(f"Failed to import module {module_name}: {e}")
-            except Exception as e:
-                logger.warning(f"Error processing module {module_name}: {e}")
+            model_name = attr.__dict__["model_name"]
+            models_dict[model_name] = attr
+            logger.debug(f"Discovered model: {model_name} -> {attr.__name__}")
 
     logger.info(f"Discovered {len(models_dict)} models: {list(models_dict.keys())}")
     return models_dict

@@ -54,6 +54,13 @@ class Supervisor(BaseModel):
                 save_environment(environment, env_save_path)
 
                 model = create_model(model_config.name)
+                if not model.supports_environment(environment):
+                    logger.warning(
+                        f"Skipping {model_config.name} on {environment_config.name}: "
+                        f"{model.describe_space_mismatch(environment)}"
+                    )
+                    continue
+
                 provided_hyperparameters = model_config.get_hyperparameters_dict()
                 model.configure(environment, provided_hyperparameters)
                 model.load(directory)
@@ -76,6 +83,13 @@ class Supervisor(BaseModel):
                     environment_config.name, **environment_config.get_hyperparameters_dict()
                 )
                 model = create_model(model_config.name)
+                if not model.supports_environment(environment):
+                    logger.warning(
+                        f"Skipping {model_config.name} on {environment_config.name}: "
+                        f"{model.describe_space_mismatch(environment)}"
+                    )
+                    continue
+
                 provided_hyperparameters = model_config.get_hyperparameters_dict()
                 model.configure(environment, provided_hyperparameters)
                 model.load(directory)
