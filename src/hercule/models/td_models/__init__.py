@@ -10,7 +10,7 @@ import numpy as np
 from pydantic import Field, PrivateAttr
 
 from hercule.config import HyperParameter, HyperParamsBase, ParameterValue
-from hercule.environnements.spaces_checker import check_space_is_discrete
+from hercule.environnements.spaces_checker import SpaceKind, check_space_is_discrete
 from hercule.models import RLModel
 from hercule.models.epoch_result import EpochResult
 
@@ -46,6 +46,14 @@ class TDModel(RLModel[TDModelHyperParams], ABC):
 
     # Type-safe hyperparameters class
     hyperparams_class: ClassVar[type[HyperParamsBase]] = TDModelHyperParams
+    # A Q-table indexes by a single discrete observation and selects among a single
+    # discrete action -- there is no other pair this family can support. Declared
+    # once here rather than on `SimpleQLearningModel`/`SimpleSarsaModel`, which
+    # inherit it: both share the exact same constraint, enforced independently by
+    # `configure()`'s `check_space_is_discrete` guard above.
+    supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]] = frozenset(
+        {(SpaceKind.DISCRETE, SpaceKind.DISCRETE)}
+    )
 
     @classmethod
     def default_hyperparameters_typed(cls) -> TDModelHyperParams:

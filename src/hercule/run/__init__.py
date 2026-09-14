@@ -10,7 +10,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 from hercule.config import HerculeConfig, ParameterValue
-from hercule.models import RLModel
+from hercule.models import RLModel, model_file_name
 from hercule.models.epoch_result import EpochResult
 
 
@@ -62,6 +62,24 @@ class Runner(BaseModel):
         try:
             with open(run_info_file, encoding="utf-8") as f:
                 run_data = json.load(f)
+
+            # A run is resumable by design: Runner.learn() iterates
+            # range(learning_ongoing_epoch, max_epoch), trusting run_info.json's epoch counters to
+            # reflect the model weights actually on disk. A run_info.json reporting a non-zero
+            # epoch with no model.json next to it is corrupt: RLModel.load() tolerates a missing
+            # model.json silently (that tolerance is what makes a *fresh* run work), so without this
+            # guard training would silently resume from a randomly initialised model while the
+            # epoch counters and metrics claim thousands of epochs already happened.
+            learning_ongoing_epoch = run_data.get("learning_ongoing_epoch", 0)
+            model_file = directory_path / model_file_name
+            if learning_ongoing_epoch > 0 and not model_file.exists():
+                raise ValueError(
+                    f"Corrupt run directory {directory_path}: {run_info_file_name} reports "
+                    f"learning_ongoing_epoch={learning_ongoing_epoch}, but {model_file_name} is "
+                    f"missing (looked for {model_file}). Resuming would silently retrain from a "
+                    f"fresh model while the epoch counters and metrics claim progress already made."
+                )
+
             return Runner(**run_data, directory_path=directory_path)
 
         except Exception as e:

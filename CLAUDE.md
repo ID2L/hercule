@@ -30,7 +30,7 @@ uv run hercule play <model.json> <environment.json>        # replay a trained mo
 uv run hercule play <model.json> <environment.json> --no-render
 uv run hercule report outputs/frozenlake_4x4              # individual or comparative report (auto-detected)
 
-uv run pytest                            # 50 tests, ~25s
+uv run pytest                            # 264 tests, ~15s
 uv run pytest tests/config/test_config_expansion.py::TestConfigExpansion::test_expand_model_variants
 uv run pytest -m "not slow"              # markers: slow, integration, unit (--strict-markers is on)
 
@@ -100,8 +100,8 @@ resolves through that registry, and YAML `models[].name` is the same key.
 
 Current hierarchy:
 - `td_models/` — abstract `TDModel` (Q-table, ε-greedy, epoch loop); subclasses only implement `update()`:
-  `simple_q_learning/` (off-policy), `simple_sarsa/` (on-policy). Requires **discrete** action *and* observation
-  spaces (`environnements/spaces_checker.py`).
+  `simple_q_learning/` (off-policy), `simple_sarsa/` (on-policy). Declares
+  `supported_spaces = {(DISCRETE, DISCRETE)}` on `TDModel`, which both subclasses inherit.
 - `deep_q_learning/` — DQN (PyTorch): `QNetwork` picks MLP for 1-D observations / CNN for 3-D, plus
   `ExperienceReplayBuffer`.
 - `dummy/` — random baseline, works on any space.
@@ -267,12 +267,41 @@ end user reads.
   samples are not. Check the source before following them.
 - `load_from_dict()` is used by `controller.play_interactive()` but is **not** declared on `RLModel`; it is
   implemented per model (`TDModel`, `DummyModel`, DQN). A new model without it breaks `hercule play` only.
-- `TDModel.configure()` returns `False` (instead of raising) when the env spaces are not discrete, and
-  `Supervisor` ignores the return value — pairing a tabular model with e.g. `CartPole-v1` fails later with an
-  unrelated error. Validate the pairing in the config.
+- Every concrete model declares `supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]]`, and
+  `Supervisor` checks it **before** `configure()`, skipping a mismatched (environment, model) pair with a message
+  naming both kinds and carrying on with the rest. Two rules make this work and are easy to undo by accident.
+  (1) **There is no default.** A permissive one would silently pair a forgetful new model with any environment —
+  the exact failure this replaced, where `configure()` returned `False` and `Supervisor` ignored the return.
+  `get_available_models()` refuses to register a concrete model that does not declare it. (2) The check must not
+  live behind `configure()`: `DeepQLearningModel.configure` calls `super().configure(...)` and **discards its
+  return value**, so a base-class rejection would never propagate. Note `hasattr(RLModel, "supported_spaces")` is
+  `False` — a bare `ClassVar` annotation with no assignment creates no attribute, which is what makes the
+  registry gate work.
 - `EnvironmentManager.load_environment()` still contains debug `print()` calls; `Supervisor` bypasses that class
   and uses `EnvironmentFactory` directly.
-- Model persistence is JSON, so `save_every_n_epoch` on a large DQN writes big files; tune it per experiment.
+- **A truncation is not a termination, and `CartPole-v1` cannot show you the difference.** A Gymnasium time-limit
+  truncation leaves the successor state with value, so the bootstrap must survive it; only `terminated` zeroes
+  the TD target. `deep_q_learning` used to push `done = terminated or truncated` as one flag and mask on it,
+  which is wrong on every horizon-truncated environment — `Pendulum-v1` *always* truncates and never terminates.
+  The trap is trying to demonstrate the fix on CartPole: measured over a controlled same-seed pair, at the
+  default 500-step horizon the agent never gets there (max 300 over 150 epochs), so **0 episodes truncate** and
+  before/after are identical to the digit; capped at 100 steps the truncations do happen but the task becomes
+  trivial and both conditions saturate the ceiling (`last50` 99.96/100). The unit tests on the target itself are
+  the proof; a behavioural delta needs an environment that truncates *and* still has value to estimate.
+- **`torch.load(..., weights_only=True)` rejects `np.random.get_state()`.** Checkpoints store RNG state so a
+  resumed run continues its stream, and `weights_only=True` is non-negotiable (`weights_only=False` makes
+  `hercule play` on a shared model an arbitrary-code-execution path). Measured round-trip: the torch RNG tensor,
+  `random.getstate()` and `Generator.bit_generator.state` all load cleanly; the legacy NumPy tuple raises
+  `UnpicklingError` because it contains an `ndarray`. So the model owns one `np.random.default_rng(seed)` and
+  everything routes through it — a bare `np.random.*` call elsewhere would consume a generator whose state is
+  never checkpointed, producing a resume that looks correct and is not.
+- Model persistence is JSON with base64-encoded `torch.save` payloads (`format_version: 2`), and the legacy
+  list encoding is still readable so models already under `outputs/` keep loading. Sizing is dominated by
+  arithmetic, not by the encoder: a checkpoint holds the online network, the target network (its lag cannot be
+  reconstructed) and Adam's two per-parameter moment buffers, so it is **~4x one network's weights**. Measured on
+  the stacked CarRacing shape (2.19 M params): 11.70 MB for one network, 22.35 MB untrained, 44.69 MB trained,
+  against 133.9 MB under the old `tolist()` encoding. gzip buys ~9% — float32 weights are near-random — so do
+  not expect compression to rescue a size target. Tune `save_every_n_epoch` per experiment accordingly.
 - The repo is **Ruff-clean** as of 2026-07-28 (`check` and `format --check` both pass). Keep it that way: a new
   violation is yours. Note `ruff format` also reformats Python snippets inside `.md` files.
 - CLI output is emoji-heavy (`🎯 📊 ✅ …`). `harden_output_streams()` in `cli/main.py` runs from the group
