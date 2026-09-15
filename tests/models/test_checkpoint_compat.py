@@ -115,6 +115,21 @@ def test_a_version_2_optimizer_state_attaches_to_the_right_parameters(branch: st
         f"Stored order, migrated: {expected_order}. Current order: {actual_order}"
     )
 
+    # The name order above is necessary and not sufficient: the optimizer is built
+    # from `parameters()`, and it is the OPTIMIZER's own list that its integer state
+    # keys index. A `_build_optimizers()` that passed a permuted list would leave
+    # `named_parameters()` untouched and still attach every moment to the wrong
+    # tensor. So compare the optimizer's parameters by IDENTITY against the module's,
+    # position by position.
+    named = dict(model._q_network.named_parameters())
+    optimised = [p for group in model._optimizer.param_groups for p in group["params"]]
+    assert len(optimised) == len(expected_order), "the optimizer covers a different number of parameters"
+    for index, name in enumerate(expected_order):
+        assert optimised[index] is named[name], (
+            f"{branch}: optimizer slot {index} holds a different tensor than {name!r}, so a version-2 "
+            "state restores Adam's moments onto the wrong parameter"
+        )
+
     parameters = list(model._q_network.parameters())
     state = model._optimizer.state_dict()["state"]
     assert state, "no optimizer state was restored at all"
