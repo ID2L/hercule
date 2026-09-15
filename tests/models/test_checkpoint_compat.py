@@ -83,11 +83,16 @@ def test_a_version_2_optimizer_state_attaches_to_the_right_parameters(branch: st
     A version-2 `optimizer_state_b64` carries `{0: {...}, 1: {...}}` against the
     order `parameters()` yielded before the refactor. If the encoder/head split had
     changed that order, every tensor would still load, every weight hash would still
-    match, and Adam's moments would silently attach to the wrong parameters --
-    diverging only on the next gradient step, long after any test looked.
+    match, and Adam's moments would attach to the wrong parameters -- diverging only
+    on the next gradient step, long after any test looked.
 
-    Shapes are the check: on the convolutional branch the ten parameters have ten
-    different shapes, so a permutation cannot survive it.
+    The certification is the NAME order, not the shapes. Shapes are not enough and an
+    earlier version of this test wrongly assumed they were: on the vector branch
+    indices 1 and 3 are both `(128,)` and on the image branch indices 3 and 5 are
+    both `(64,)`, so a swap within either pair would satisfy every shape assertion.
+    A `state_dict`'s key order is its registration order, which is exactly the order
+    `parameters()` yielded then, so migrating those keys and comparing against
+    `named_parameters()` now is an exact test that no permutation survives.
     """
     build_env, _ = CASES[branch]
     payload = json.loads((CHECKPOINTS / branch / "model.json").read_text(encoding="utf-8"))
@@ -95,16 +100,26 @@ def test_a_version_2_optimizer_state_attaches_to_the_right_parameters(branch: st
 
     model = DeepQLearningModel()
     assert model.configure(build_env(), {"seed": 1})
+
+    stored = torch.load(io.BytesIO(base64.b64decode(payload["networks_b64"]["online"])), weights_only=True)
+    # Drop the image branch's duplicate registrations: `parameters()` de-duplicated
+    # them then, so they never occupied an optimizer index.
+    canonical_order = [k for k in stored if not k.startswith("network.")] if branch == "image" else list(stored)
+    expected_order = list(model._migrate_parameter_keys({k: stored[k] for k in canonical_order}, "online"))
+
     model.load_from_dict(payload)
+    actual_order = [name for name, _ in model._q_network.named_parameters()]
+    assert actual_order == expected_order, (
+        f"{branch}: parameter enumeration order changed across the refactor, so a version-2 "
+        f"optimizer state attaches Adam's moments to the wrong parameters. "
+        f"Stored order, migrated: {expected_order}. Current order: {actual_order}"
+    )
 
     parameters = list(model._q_network.parameters())
     state = model._optimizer.state_dict()["state"]
     assert state, "no optimizer state was restored at all"
     for index, entry in state.items():
-        assert entry["exp_avg"].shape == parameters[index].shape, (
-            f"{branch}: Adam's first moment for parameter {index} has shape {tuple(entry['exp_avg'].shape)} "
-            f"but that parameter is {tuple(parameters[index].shape)} -- the enumeration order changed"
-        )
+        assert entry["exp_avg"].shape == parameters[index].shape
         assert entry["exp_avg_sq"].shape == parameters[index].shape
 
 
