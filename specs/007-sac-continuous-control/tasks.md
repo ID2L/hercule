@@ -51,44 +51,44 @@ pre-refactor code, so they must be produced by the pre-refactor code.
 **Blocks every user story.** Nothing below this line can start until the ancestor exists and the deep
 model is rebuilt on it.
 
-- [ ] T007 Create `src/hercule/models/off_policy/__init__.py` with `OffPolicyReplayModel(RLModel)`,
+- [X] T007 Create `src/hercule/models/off_policy/__init__.py` with `OffPolicyReplayModel(RLModel)`,
       abstract, declaring the hook surface of `data-model.md`: `_build_networks`,
       `_build_optimizers`, `_select_action`, `_update`, `_networks`, `_optimizers` abstract;
       `_ready_to_update`, `_on_training_step`, `_sync_targets`, `_target_pairs`,
       `_target_sync_interval`, `_extra_state`, `_load_extra_state` concrete with the stated defaults
-- [ ] T008 Move `ExperienceReplayBuffer` into `off_policy`, widening the stored action from `int` to
+- [X] T008 Move `ExperienceReplayBuffer` into `off_policy`, widening the stored action from `int` to
       `int | np.ndarray` and stacking rather than assuming scalars on collation (FR-004)
-- [ ] T009 Add `Encoder` to `off_policy`: MLP branch `Linear(in,128) → ReLU → Linear(128,128) → ReLU`,
+- [X] T009 Add `Encoder` to `off_policy`: MLP branch `Linear(in,128) → ReLU → Linear(128,128) → ReLU`,
       CNN branch `Conv2d ×3 with ReLUs → Flatten → Linear(flat,512) → ReLU`, layers held in one
       `nn.Sequential` named `layers`. **Construction order is observable behaviour** — see the plan's
       refactor constraint; the shape probe stays between the convolutions and the linear layer
-- [ ] T010 Implement the per-dimension action mapping in `off_policy` (`to_env`, `to_policy`), caching
+- [X] T010 Implement the per-dimension action mapping in `off_policy` (`to_env`, `to_policy`), caching
       `_action_low`/`_action_high` **only when the action space is a `Box`** (guarantee G8 — a
       `Discrete` space has neither, and reading them unconditionally breaks the rebuilt deep model)
-- [ ] T011 Move the episode loop into `OffPolicyReplayModel.run_epoch()`, transcribing the call
+- [X] T011 Move the episode loop into `OffPolicyReplayModel.run_epoch()`, transcribing the call
       sequence in `data-model.md` exactly: `begin_episode()` **before** priming, `push()` **inside**
       the training branch, `_on_training_step()` at the point the epsilon decay occupies today,
       `_sync_targets()` once per environment step
-- [ ] T012 Move frame stacking, priming, observation rescaling, device handling, seeding and
+- [X] T012 Move frame stacking, priming, observation rescaling, device handling, seeding and
       `_needs_seeded_reset` into the ancestor, keeping `configure()`'s order: seed, then
       `_build_networks()`, then `_build_optimizers()`, with nothing drawing from torch's RNG in
       between (guarantee G1)
-- [ ] T013 Move checkpoint assembly into the ancestor: `networks_b64` from `_networks()`,
+- [X] T013 Move checkpoint assembly into the ancestor: `networks_b64` from `_networks()`,
       `optimizer_state_b64` as a **name-keyed mapping** from `_optimizers()`, `rng_state_b64` and the
       counters written **by the ancestor itself**, `_extra_state()` merged in (guarantee G7)
-- [ ] T014 Bump `_CHECKPOINT_FORMAT_VERSION` to 3 and make `_import` dispatch across 3, 2 and the
+- [X] T014 Bump `_CHECKPOINT_FORMAT_VERSION` to 3 and make `_import` dispatch across 3, 2 and the
       pre-006 legacy form (contract C4)
-- [ ] T015 Implement the parameter-key migration of contract C4: **select the branch first** — image
+- [X] T015 Implement the parameter-key migration of contract C4: **select the branch first** — image
       if any key begins `conv_layers.`, else vector — then apply only that branch's rows, dropping the
       image branch's `network.*` aliases. No flat application order is correct for both branches
-- [ ] T016 Rebuild `DeepQLearningModel` on `OffPolicyReplayModel`: `QNetwork` becomes
+- [X] T016 Rebuild `DeepQLearningModel` on `OffPolicyReplayModel`: `QNetwork` becomes
       `Encoder` + `head`, constructed in that order; the target network is still **constructed**, not
       copied, so it consumes the same second RNG sequence it does today
-- [ ] T017 Implement the deep model's hooks: `_select_action` (epsilon-greedy, returning the action
+- [X] T017 Implement the deep model's hooks: `_select_action` (epsilon-greedy, returning the action
       twice since its own coordinates are the environment's), `_on_training_step` (epsilon decay),
       `_target_pairs` (online → target), `_target_sync_interval` (`target_update_frequency`),
       `_extra_state` (`epsilon`, `frame_stack`, `observation_shape`)
-- [ ] T018 Verify `ruff check .` and `ruff format --check .` are clean, and that `get_available_models()`
+- [X] T018 Verify `ruff check .` and `ruff format --check .` are clean, and that `get_available_models()`
       still returns exactly the four concrete models — the two new abstract classes must not appear
 
 **Checkpoint**: the ancestor exists, the deep model runs on it, nothing is verified yet.
@@ -100,21 +100,21 @@ model is rebuilt on it.
 **Goal**: prove the refactor changed no number and broke no stored artifact.
 **Independent test**: `uv run pytest tests/models/test_golden_fixture.py tests/models/test_checkpoint_compat.py`
 
-- [ ] T019 [US2] Write `tests/models/test_golden_fixture.py`: re-run each of T001's three
+- [X] T019 [US2] Write `tests/models/test_golden_fixture.py`: re-run each of T001's three
       configurations at `seed=42` and assert the reward series and the order-keyed weight hashes match
       `tests/fixtures/golden/dqn_baseline.json` **exactly**. CPU-pinned (research R9 — bit-identity
       across devices is not achievable and asserting it fails on machines that have a GPU)
-- [ ] T020 [US2] Write `tests/models/test_checkpoint_compat.py`: load each of T003's two pre-refactor
+- [X] T020 [US2] Write `tests/models/test_checkpoint_compat.py`: load each of T003's two pre-refactor
       checkpoints and T004's legacy file, assert each loads without error and that the loaded weights
       equal the stored ones. **This is the test the fixture cannot be** — the fixture compares tensors
       and never opens a file (contract C4)
-- [ ] T021 [US2] Extend `test_checkpoint_compat.py` with a round-trip at version 3: save, load, assert
+- [X] T021 [US2] Extend `test_checkpoint_compat.py` with a round-trip at version 3: save, load, assert
       every network including the delayed copies, every optimizer's state, and all three RNG streams
       come back identical
-- [ ] T022 [P] [US2] Assert `hercule play` renders a pre-refactor checkpoint, including a stacked one,
+- [X] T022 [P] [US2] Assert `hercule play` renders a pre-refactor checkpoint, including a stacked one,
       exercising the `frame_stack`/`observation_shape` keys that let a default-configured model rebuild
       the right network shape (User Story 2 scenario 3)
-- [ ] T023 [P] [US2] Assert the tabular and random-baseline models are untouched: the existing tests in
+- [X] T023 [P] [US2] Assert the tabular and random-baseline models are untouched: the existing tests in
       `tests/models/` must pass unmodified
 
 **Checkpoint**: the refactor is certified. Only now is a failure in Phase 4 attributable to SAC.
