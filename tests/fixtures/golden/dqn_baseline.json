@@ -1,0 +1,176 @@
+{
+  "captured_from_commit": "b891ffd8b8bcc7cfd10fb8b39eeb4958a6e00651",
+  "torch_version": "2.10.0+cpu",
+  "numpy_version": "2.2.6",
+  "gymnasium_version": "1.2.3",
+  "note": "Parameter hashes are in parameters() order, never keyed by name: the feature-007 refactor renames every attribute path, and a name-keyed fixture would fail the refactor it exists to certify.",
+  "configurations": {
+    "cartpole": {
+      "epochs": 12,
+      "hyperparameters": {
+        "learning_rate": 0.001,
+        "discount_factor": 0.99,
+        "epsilon": 1.0,
+        "epsilon_decay": 0.002,
+        "epsilon_min": 0.05,
+        "replay_buffer_size": 500,
+        "batch_size": 8,
+        "step_modulo": 1,
+        "target_update_frequency": 50,
+        "seed": 42
+      },
+      "rewards": [
+        8.0,
+        23.0,
+        15.0,
+        11.0,
+        23.0,
+        13.0,
+        25.0,
+        13.0,
+        25.0,
+        12.0,
+        12.0,
+        28.0
+      ],
+      "online_parameter_hashes": [
+        "09542258a9ba124dfcc6d847fc128e87579cbe07c2a966cd9917b929751c8216",
+        "50f438cbab7d9f70f1d979f3e0176479a18bfc14fee9a5589b98750a745c14fb",
+        "91dc82328438356e3d92271e6210b75e92520c2755afeac95a84076a3c598683",
+        "1fa9960c9db8f22e53bfe2ccbdba30072bd9ea196e69140bb9a1845bbfce2f79",
+        "cef9497bad65e304d45a5e10ebffec6c5b50bbb7f1c10387490807eabe23cb0f",
+        "db9e167cf76bb3a347e885579d2dbda5bb4ac1552a3805a35f2748fa8a8d8393"
+      ],
+      "target_parameter_hashes": [
+        "2c1c50db3d6410a87f1e67aec661f0d1817fd00f89c5557bf695145488ff2f78",
+        "8f71075e2330f9256ed69996b09f10e0c59cc53ab55215bf0c6f124e6719becb",
+        "6f88c10c415d492d5cefdace9d24695f26d52a5051a13f9c31fb58a70d579f15",
+        "83797782d5974d8671651f899c3ae3414ace9090bb7b923649ad9648259cf4b3",
+        "7d02928db970860c6120d89444e9c587a4d2cd408a083209af5403bd4b165858",
+        "a26b10647dd341eeee79db70cd6a9231631ec2ffda9e37b87cc95cac00bba96b"
+      ],
+      "epsilon": 0.6594055342648917,
+      "step_count": 208,
+      "epoch_count": 12,
+      "observation_shape": [
+        4
+      ]
+    },
+    "frozenlake": {
+      "epochs": 20,
+      "hyperparameters": {
+        "learning_rate": 0.001,
+        "discount_factor": 0.99,
+        "epsilon": 1.0,
+        "epsilon_decay": 0.002,
+        "epsilon_min": 0.05,
+        "replay_buffer_size": 500,
+        "batch_size": 8,
+        "step_modulo": 1,
+        "target_update_frequency": 50,
+        "seed": 42
+      },
+      "rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "online_parameter_hashes": [
+        "4069e36d2070452f0143547ea47f5c05d9cef88bf07d20ac7cdad2a1d5b8f815",
+        "866812373b5d3a1e8136925807ca295c7d60032d9e51eb97a3b379d1829f86bf",
+        "05e5a839227f3193e1dee414f9c8be37e3ae01ad0aac46b332a8562eb2365bf2",
+        "2ac0076c3ff82ebeeac83229c32efd3b760edb3bb0cae46c2b24c2155f5ad185",
+        "f546a518e86948487804237e6d071aea46302896a0561170d8e7421ecebfd5ee",
+        "e1e2f9aaf64bd173359bc3d6489f2d7159c94d351c724c066756c271da575642"
+      ],
+      "target_parameter_hashes": [
+        "a169d6940efca089e548cc826e765ecbeb1218c6849d2ea43010b3e55a6b00e7",
+        "4777c884ac924a8430dbe667775f49f3713e130e8bcb2ffa61dd4fb58832344e",
+        "209533220529442a3430302e6aa7a128830c84cab9342f7b26dc377f0854c969",
+        "9bae0a0dad09d34cc4b15e30b904ec6b1346a9bb4c0d47ab90db9152320fafd4",
+        "c07ecceb9dae732935e48595a8db420e5b9065be6d7f5b04d04f79f2e79d9940",
+        "6b379022095c3f58bdce7383229be9c8072b1a074065d61e0e47b320f4f22388"
+      ],
+      "epsilon": 0.6767925213396458,
+      "step_count": 195,
+      "epoch_count": 20,
+      "observation_shape": [
+        1
+      ]
+    },
+    "shaped_image": {
+      "epochs": 8,
+      "hyperparameters": {
+        "learning_rate": 0.001,
+        "discount_factor": 0.99,
+        "epsilon": 1.0,
+        "epsilon_decay": 0.002,
+        "epsilon_min": 0.05,
+        "replay_buffer_size": 500,
+        "batch_size": 8,
+        "step_modulo": 1,
+        "target_update_frequency": 50,
+        "seed": 42
+      },
+      "rewards": [
+        2.0,
+        3.0,
+        3.0,
+        2.0,
+        3.0,
+        3.0,
+        0.0,
+        5.0
+      ],
+      "online_parameter_hashes": [
+        "bbe20b1a1c43793509e1d6825c01b3b324f34137db1430d0341a6f980aba5f7a",
+        "b95dcb849f061eb0dfd7d44afda3341fea5be7ed49a920c1dd867383441892db",
+        "0fe0143aea14cc5b7cd8e79378167b47d827e89576b176d96e42676785a88c95",
+        "781f6a1e75a5306320d65a09a4a3e5a4beb8475c6ef2eb6093f72c7603306464",
+        "a0ce8a239244b726c9aaff97f9957d116e20e479785d52f606ba2e06b2462476",
+        "40349a71688b6f0ba37e98dfabde1bace054f3c6be08244abacd2cc929c28528",
+        "069ae0fd7b0f870c1301d9c7e976842e3bd01427b0f3a2a055c10133eb88045e",
+        "f79e08534bb7c3b2c942e3656c5a9077d44516f6a7db378b4850edb24d57ebd4",
+        "198bf7b44e0045d3f637c19aaed5a84d10d38bd5d72d408861c6994a978de1e8",
+        "e4e12fa3710bf38880a5b36074043c05d4320bed215bb0639a86c1bd29dfe16b"
+      ],
+      "target_parameter_hashes": [
+        "cc572bba4e6adf01e09be192fec1eae02cef24f87f042f267e2aa16d731fef32",
+        "63febbaf6f6368a5a0bbc291585e687e8e389ed66fe1e124513c131594e75af9",
+        "79294fc65f7c2989b729bf49a65927f54e099bdd97791a5c2d4ce600d1630eda",
+        "e48c1c0d6bb3eb69e3acb4c23b75bc8f3ea72675822c89dcaadbe8789fc39fa8",
+        "c39678790ad4c4ac1418b57a4013936cf107e1c4dbb706ff577c41180c581bbf",
+        "1f29fd6dba9ae0c4d7ba5b7c2cf40fd256b9c28e115a5a3c7773a27b1e2121d5",
+        "6e962ccb372c2340eab9d049b92c2952c15be40e6038331769d5fc09736e5873",
+        "d967077fec03e2bb146dfaa90b98aca68a0120163a35b0276922f8a4d369f1c8",
+        "51ae83e7e380c230d1eb6070fcf97cd319685932862f6fd3acb84e52933a5871",
+        "313771b94f4baa27af3659fc8d9d4326c72db287034102a42d97a0be69b43072"
+      ],
+      "epsilon": 0.8520072748321851,
+      "step_count": 80,
+      "epoch_count": 8,
+      "observation_shape": [
+        36,
+        36,
+        3
+      ]
+    }
+  }
+}
