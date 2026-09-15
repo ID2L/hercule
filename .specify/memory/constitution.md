@@ -1,5 +1,39 @@
 <!-- Sync Impact Report
-Version change: 1.1.0 → 1.2.0 (MINOR: additive ClassVar contract on RLModel)
+Version change: 1.2.0 → 1.3.0 (MINOR: two additive Root Class Registry entries,
+  plus one clarifying sentence in Principle VI)
+Modified principles:
+  - VI. Extensibility & Discoverability: one narrow exemption added, stating that
+    extracting shared scaffolding into an intermediate abstract class is not a
+    violation, because the principle's test is whether the NEXT algorithm can be
+    added inside its own sub-package.
+Added sections: none
+Removed sections: none
+Rationale:
+  Feature 007 introduces `OffPolicyReplayModel` (the concerns every replay-based
+  model shares: episode loop, replay store, frame stacking, seeding, action
+  mapping, checkpoint assembly) and `ContinuousActorCriticModel` (actor, twin
+  value estimators, their delayed copies, gradual averaging). Both occupy exactly
+  the position `TDModel` already occupies in this registry -- an abstract
+  intermediate whose lifecycle contract concrete models depend on -- so the
+  symmetry is what decides their inclusion. Principle I already permits
+  intermediate abstract classes; what was missing was their listing here, which is
+  what triggers a constitution review when one of them changes.
+  The Principle VI sentence exists because feature 007 rebuilds
+  `deep_q_learning` onto the new ancestor. That rebuild is not required by adding
+  SAC -- SAC could have duplicated the scaffolding in its own sub-package and
+  satisfied the principle -- but leaving the reading to be re-argued by every
+  future reader was judged worse than writing it down once.
+Backward compatibility: ADDITIVE throughout. No abstract method is added, removed
+  or renamed on any existing root class; `RLModel`'s surface is untouched and
+  `save()`/`load()` remain `@final`. No existing model needs changing to comply.
+Callers updated: none required by the amendment itself.
+Templates requiring updates:
+  - .specify/templates/plan-template.md ✅ (no conflict)
+  - .specify/templates/spec-template.md ✅ (no conflict)
+  - .specify/templates/tasks-template.md ✅ (no conflict)
+Follow-up TODOs: none
+
+Previous: 1.1.0 → 1.2.0 (MINOR: additive ClassVar contract on RLModel)
 Modified principles:
   - I. Generic Algorithm Architecture: a concrete model MUST now declare
     `supported_spaces`, and model discovery registers concrete classes only.
@@ -178,6 +212,15 @@ responsibility:
 Adding a new RL algorithm MUST NOT require modifying any existing file outside
 the new algorithm's sub-package.
 
+Extracting shared scaffolding into an intermediate abstract class does not by
+itself violate this principle, even though it modifies the models it extracts
+from. The operative word above is **require**: the test is whether adding the
+*next* algorithm can be done inside its own sub-package, and a refactor that
+strictly reduces per-algorithm coupling makes that more true, not less. This
+sentence grants one narrow exemption and nothing wider: it does not defer
+compliance to a future changeset, does not weaken the obligation, and does not
+exempt work merely because it is labelled refactoring.
+
 **Rules:**
 
 - `get_available_models()` dynamically discovers model sub-packages via
@@ -196,6 +239,8 @@ altered lifecycle contracts) MUST trigger a constitution review.
 |--------------------|--------------------------------------------|-------------------------------------------|
 | `RLModel`          | `src/hercule/models/__init__.py`           | Abstract base for all RL algorithms       |
 | `TDModel`          | `src/hercule/models/td_models/__init__.py` | Abstract base for tabular TD algorithms   |
+| `OffPolicyReplayModel` | `src/hercule/models/off_policy/__init__.py` | Abstract base for replay-based off-policy algorithms |
+| `ContinuousActorCriticModel` | `src/hercule/models/continuous_actor_critic/__init__.py` | Abstract base for continuous actor-critic algorithms |
 | `BaseConfig`       | `src/hercule/config/__init__.py`           | Base Pydantic model for configurations    |
 | `HyperParamsBase`  | `src/hercule/config/__init__.py`           | Base class for typed hyperparameters      |
 | `HerculeConfig`    | `src/hercule/config/__init__.py`           | Top-level experiment configuration        |
@@ -229,4 +274,4 @@ altered lifecycle contracts) MUST trigger a constitution review.
 - Use `AGENTS.md` at the repository root for runtime AI-agent development
   guidance.
 
-**Version**: 1.2.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-09-10
+**Version**: 1.3.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-09-15
