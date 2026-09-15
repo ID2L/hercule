@@ -136,9 +136,7 @@ half is computing the target under `torch.no_grad()`.
 ```python
 model_name: ClassVar[str] = "sac"
 hyperparams_class: ClassVar[type[HyperParamsBase]] = SACHyperParams
-supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]] = frozenset(
-    {(SpaceKind.BOX, SpaceKind.BOX)}
-)
+supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]] = frozenset({(SpaceKind.BOX, SpaceKind.BOX)})
 ```
 
 All three are required, and none is optional or inferred. `_is_registrable` refuses to register a

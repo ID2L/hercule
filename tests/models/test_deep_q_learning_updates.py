@@ -1,6 +1,6 @@
 """Regression tests for when Deep Q-Learning performs its gradient updates.
 
-The bug these guard against: `run_epoch()` used to call `_train_step()` *after*
+The bug these guard against: `run_epoch()` used to call the gradient step *after*
 the step loop, so an episode of N steps produced a single gradient update
 derived from the whole episode return -- Monte-Carlo control, not the
 per-transition TD update DQN is defined by. The target-network synchronisation
@@ -38,7 +38,7 @@ class _FixedLengthEnv(gym.Env):
 
 
 def _make_model(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> tuple[DeepQLearningModel, list[int]]:
-    """Configure a model on the stub env, counting every `_train_step()` call."""
+    """Configure a model on the stub env, counting every `_update()` call."""
     env = _FixedLengthEnv()
     model = DeepQLearningModel()
     hyperparameters = {
@@ -57,13 +57,13 @@ def _make_model(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> tuple[D
     model.env = env
 
     calls: list[int] = []
-    original = DeepQLearningModel._train_step
+    original = DeepQLearningModel._update
 
-    def counting_train_step(self: DeepQLearningModel) -> None:
+    def counting_update(self: DeepQLearningModel, batch: list) -> None:
         calls.append(self._step_count)
-        original(self)
+        original(self, batch)
 
-    monkeypatch.setattr(DeepQLearningModel, "_train_step", counting_train_step)
+    monkeypatch.setattr(DeepQLearningModel, "_update", counting_update)
     return model, calls
 
 
@@ -105,7 +105,7 @@ def test_no_update_outside_training(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_target_network_lags_the_online_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """The target network is frozen between two synchronisations.
 
-    Chaining the copy to `_train_step()` made the bootstrap target come from the
+    Chaining the copy to the gradient step made the bootstrap target come from the
     current weights, i.e. no target network at all.
     """
     model, calls = _make_model(monkeypatch, target_update_frequency=1000)

@@ -2,7 +2,7 @@
 
 Regression coverage for spec 006 sub-spec S03. `run_epoch` used to collapse `terminated`
 and `truncated` into a single `done` flag before pushing a transition to the replay
-buffer, and `_train_step` masked the bootstrap term with that flag. A Gymnasium
+buffer, and the gradient step masked the bootstrap term with that flag. A Gymnasium
 time-limit truncation is NOT an MDP terminal state -- `Pendulum-v1` always truncates and
 never terminates -- so masking on it trained every truncating environment against a
 target of `r` instead of `r + gamma * max_a Q_target(s', a)`.
@@ -16,9 +16,9 @@ from hercule.models.deep_q_learning import DeepQLearningModel
 
 
 def _capture_mse_targets(monkeypatch: pytest.MonkeyPatch) -> list[torch.Tensor]:
-    """Patch `torch.nn.MSELoss.forward` so a test can read the target `_train_step` built.
+    """Patch `torch.nn.MSELoss.forward` so a test can read the target `_update` built.
 
-    `_train_step` computes `target_q_values` as a local variable and never returns or
+    `_update` computes `target_q_values` as a local variable and never returns or
     stores it anywhere, so intercepting the one place it is consumed is the only way to
     observe it from a test without changing production code.
     """
@@ -34,7 +34,7 @@ def _capture_mse_targets(monkeypatch: pytest.MonkeyPatch) -> list[torch.Tensor]:
 
 
 def _expected_target(model: DeepQLearningModel, reward: float, next_state: np.ndarray, *, bootstraps: bool) -> float:
-    """Recompute the target the way `_train_step` is specified to build it."""
+    """Recompute the target the way `_update` is specified to build it."""
     with torch.no_grad():
         next_q = model._target_network(model._as_network_input(next_state).unsqueeze(0)).max().item()
     discount_factor = model.get_hyperparameters().discount_factor
@@ -50,9 +50,11 @@ def test_truncation_keeps_the_bootstrap_term(tiny_dqn, monkeypatch: pytest.Monke
     model._replay_buffer.push(state, 0, 1.0, next_state, terminated=False, truncated=True)
     captured = _capture_mse_targets(monkeypatch)
 
-    model._train_step()
+    # The batch is passed explicitly rather than sampled, so the assertion is on the
+    # transition this test pushed and not on whatever the RNG happened to draw.
+    model._update(list(model._replay_buffer.buffer))
 
-    assert captured, "no MSE loss was computed, _train_step did not run"
+    assert captured, "no MSE loss was computed, _update did not run"
     expected = _expected_target(model, reward=1.0, next_state=next_state, bootstraps=True)
     assert captured[-1].item() == pytest.approx(expected)
 
@@ -66,7 +68,9 @@ def test_termination_zeroes_the_bootstrap_term(tiny_dqn, monkeypatch: pytest.Mon
     model._replay_buffer.push(state, 0, 1.0, next_state, terminated=True, truncated=False)
     captured = _capture_mse_targets(monkeypatch)
 
-    model._train_step()
+    # The batch is passed explicitly rather than sampled, so the assertion is on the
+    # transition this test pushed and not on whatever the RNG happened to draw.
+    model._update(list(model._replay_buffer.buffer))
 
     assert captured[-1].item() == pytest.approx(1.0)
 
@@ -80,7 +84,9 @@ def test_mid_episode_transition_is_unaffected_by_either_flag(tiny_dqn, monkeypat
     model._replay_buffer.push(state, 0, 1.0, next_state, terminated=False, truncated=False)
     captured = _capture_mse_targets(monkeypatch)
 
-    model._train_step()
+    # The batch is passed explicitly rather than sampled, so the assertion is on the
+    # transition this test pushed and not on whatever the RNG happened to draw.
+    model._update(list(model._replay_buffer.buffer))
 
     expected = _expected_target(model, reward=1.0, next_state=next_state, bootstraps=True)
     assert captured[-1].item() == pytest.approx(expected)
