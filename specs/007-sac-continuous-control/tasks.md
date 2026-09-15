@@ -22,23 +22,23 @@ under which Story 1's numbers can be trusted at all" — is the same argument.
 **Nothing in this phase can be redone once Phase 2 starts.** Both artifacts are evidence *about* the
 pre-refactor code, so they must be produced by the pre-refactor code.
 
-- [ ] T001 Write `tests/fixtures/capture_baselines.py`: a script, run once from `main`, that trains
+- [X] T001 Write `tests/fixtures/capture_baselines.py`: a script, run once from `main`, that trains
       `DeepQLearningModel` at `seed=42` on three configurations — `CartPole-v1` (1-D `Box`
       observation, MLP branch), `FrozenLake-v1` (`Discrete` observation, MLP branch plus the
       cardinality rescaling path), and a shaped 3-D `Box` environment (CNN branch) — and writes both
       artifacts named in T002 and T003
-- [ ] T002 Emit the golden fixture to `tests/fixtures/golden/dqn_baseline.json`: per-episode reward
+- [X] T002 Emit the golden fixture to `tests/fixtures/golden/dqn_baseline.json`: per-episode reward
       series plus one SHA-256 per parameter tensor, **hashed in `parameters()` order and not keyed by
       parameter name** (research R8 — a name-keyed fixture breaks under T016's rename, for a reason
       unrelated to the numbers)
-- [ ] T003 Emit two real, loadable pre-refactor checkpoints to `tests/fixtures/checkpoints/`, one per
+- [X] T003 Emit two real, loadable pre-refactor checkpoints to `tests/fixtures/checkpoints/`, one per
       network branch, by calling `save()` on the trained models. These are contract C4's test input
       and, unlike the fixture, are **not** deleted at feature closure
-- [ ] T004 Hand-build `tests/fixtures/checkpoints/legacy_pre006.json`, a minimal file with a
+- [X] T004 Hand-build `tests/fixtures/checkpoints/legacy_pre006.json`, a minimal file with a
       `q_network_state_dict` key. It cannot be captured: feature 006 replaced that format, so no code
       in the tree can still produce one (research R8)
-- [ ] T005 Run T001 and commit all four artifacts **before any source file is touched**
-- [ ] T006 [P] Amend `.specify/memory/constitution.md` to 1.3.0: add `OffPolicyReplayModel` and
+- [X] T005 Run T001 and commit all four artifacts **before any source file is touched**
+- [X] T006 [P] Amend `.specify/memory/constitution.md` to 1.3.0: add `OffPolicyReplayModel` and
       `ContinuousActorCriticModel` to the Root Class Registry, and add the one clarifying sentence to
       Principle VI stated in the spec's Constitution Impact section
 
