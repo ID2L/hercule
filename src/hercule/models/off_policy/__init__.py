@@ -421,7 +421,11 @@ class OffPolicyReplayModel(RLModel[HyperParamsType], ABC, Generic[HyperParamsTyp
         curve.
         """
         if self._action_low is None or self._action_high is None:
-            msg = "Action mapping is only defined for a Box action space"
+            msg = (
+                "Action mapping is only defined for a Box action space. A model whose own action "
+                "coordinates are the environment's -- any Discrete-action model -- must return the "
+                "same value for both halves of _select_action's pair rather than calling this."
+            )
             raise ValueError(msg)
         bias = (self._action_high + self._action_low) / 2.0
         scale = (self._action_high - self._action_low) / 2.0
@@ -606,9 +610,18 @@ class OffPolicyReplayModel(RLModel[HyperParamsType], ABC, Generic[HyperParamsTyp
         return None
 
     def _sync_targets(self) -> None:
-        """Hard-copy each declared pair on its interval. Called once per env step."""
+        """Hard-copy each declared pair on its interval. Called once per env step.
+
+        `None` means never, and is the only value special-cased. Any other value
+        goes straight into the modulo, deliberately: a subclass that declares an
+        interval of `0` gets the `ZeroDivisionError` it would have got before this
+        scaffolding existed, and a negative one keeps synchronising on the steps
+        Python's modulo says it should. Swallowing either would be a behaviour
+        change on an input nothing validates against, and this hook is on the path
+        a bit-identity requirement covers.
+        """
         interval = self._target_sync_interval()
-        if interval is None or interval <= 0 or self._step_count % interval != 0:
+        if interval is None or self._step_count % interval != 0:
             return
         for live, delayed in self._target_pairs():
             delayed.load_state_dict(live.state_dict())

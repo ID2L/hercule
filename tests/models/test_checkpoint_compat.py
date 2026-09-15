@@ -15,10 +15,12 @@ outlives the refactor that introduced it.
 """
 
 import base64
+import copy
 import hashlib
 import importlib.util
 import io
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -71,6 +73,39 @@ def test_a_version_2_checkpoint_still_loads(branch: str) -> None:
         "the target network must be restored in its OWN right, never rebuilt from the online weights: "
         "doing so destroys the lag that is its entire purpose"
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("branch", sorted(CASES))
+def test_a_version_2_optimizer_state_attaches_to_the_right_parameters(branch: str) -> None:
+    """Adam's moments are keyed by parameter INDEX, so enumeration order is load-bearing.
+
+    A version-2 `optimizer_state_b64` carries `{0: {...}, 1: {...}}` against the
+    order `parameters()` yielded before the refactor. If the encoder/head split had
+    changed that order, every tensor would still load, every weight hash would still
+    match, and Adam's moments would silently attach to the wrong parameters --
+    diverging only on the next gradient step, long after any test looked.
+
+    Shapes are the check: on the convolutional branch the ten parameters have ten
+    different shapes, so a permutation cannot survive it.
+    """
+    build_env, _ = CASES[branch]
+    payload = json.loads((CHECKPOINTS / branch / "model.json").read_text(encoding="utf-8"))
+    assert isinstance(payload["optimizer_state_b64"], str), "version 2 stored one bare, unnamed state"
+
+    model = DeepQLearningModel()
+    assert model.configure(build_env(), {"seed": 1})
+    model.load_from_dict(payload)
+
+    parameters = list(model._q_network.parameters())
+    state = model._optimizer.state_dict()["state"]
+    assert state, "no optimizer state was restored at all"
+    for index, entry in state.items():
+        assert entry["exp_avg"].shape == parameters[index].shape, (
+            f"{branch}: Adam's first moment for parameter {index} has shape {tuple(entry['exp_avg'].shape)} "
+            f"but that parameter is {tuple(parameters[index].shape)} -- the enumeration order changed"
+        )
+        assert entry["exp_avg_sq"].shape == parameters[index].shape
 
 
 @pytest.mark.unit
@@ -144,7 +179,7 @@ def test_the_pre_006_legacy_format_still_loads() -> None:
 
 @pytest.mark.unit
 def test_a_version_3_checkpoint_round_trips(tmp_path) -> None:
-    """What this feature writes today comes back whole: networks, optimizer, streams."""
+    """What this feature writes today comes back whole: networks, optimizer, streams, counters."""
     model = DeepQLearningModel()
     assert model.configure(gym.make("CartPole-v1"), {"seed": 3, "batch_size": 2, "epsilon_decay": 0.01})
     for _ in range(3):
@@ -154,9 +189,19 @@ def test_a_version_3_checkpoint_round_trips(tmp_path) -> None:
     target_before = _hashes(model._target_network)
     epsilon_before = model.get_hyperparameters().epsilon
     steps_before = model._step_count
-    optimizer_before = model._optimizer.state_dict()
+    epochs_before = model._epoch_count
+    optimizer_before = copy.deepcopy(model._optimizer.state_dict())
+    torch_rng_before = torch.get_rng_state().clone()
+    python_rng_before = random.getstate()
+    numpy_rng_before = copy.deepcopy(model._rng.bit_generator.state)
 
     model.save(tmp_path)
+
+    # Move every stream on, so restoring them is distinguishable from never having
+    # touched them: without this the assertions below would pass on a no-op import.
+    torch.rand(5)
+    random.random()
+    model._rng.random()
     payload = json.loads((tmp_path / "model.json").read_text(encoding="utf-8"))
     assert payload["format_version"] == 3
     assert isinstance(payload["optimizer_state_b64"], dict), (
@@ -171,8 +216,23 @@ def test_a_version_3_checkpoint_round_trips(tmp_path) -> None:
     assert _hashes(restored._target_network) == target_before
     assert restored.get_hyperparameters().epsilon == pytest.approx(epsilon_before, abs=0.0)
     assert restored._step_count == steps_before
-    assert restored._optimizer.state_dict()["state"].keys() == optimizer_before["state"].keys()
+    assert restored._epoch_count == epochs_before
     assert not restored._needs_seeded_reset, "a resumed run must not re-issue the seeded first reset"
+
+    # Adam's moments, tensor for tensor -- comparing only the state's KEYS would
+    # pass against buffers that were zeroed, swapped or corrupted.
+    restored_state = restored._optimizer.state_dict()["state"]
+    assert restored_state.keys() == optimizer_before["state"].keys()
+    for index, entry in optimizer_before["state"].items():
+        for field in ("exp_avg", "exp_avg_sq"):
+            assert torch.equal(restored_state[index][field], entry[field]), f"optimizer {field}[{index}] differs"
+    assert restored._optimizer.param_groups[0]["lr"] == pytest.approx(model._optimizer.param_groups[0]["lr"])
+
+    # All three random streams, which nothing above would notice the absence of:
+    # deleting the RNG restore entirely would leave every assertion so far passing.
+    assert torch.equal(torch.get_rng_state(), torch_rng_before)
+    assert random.getstate() == python_rng_before
+    assert restored._rng.bit_generator.state == numpy_rng_before
 
 
 @pytest.mark.unit

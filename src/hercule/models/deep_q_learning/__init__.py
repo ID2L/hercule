@@ -40,7 +40,6 @@ class DeepQLearningModelHyperParams(HyperParamsBase):
     step_modulo: int = Field(
         default=1, description="Number of steps before performing experience replay (default: 1, every step)"
     )
-    weight_decay: float = Field(default=0.0, description="Weight decay (L2 regularization) for optimizer")
     target_update_frequency: int = Field(
         default=1000, description="Number of steps between two target-network synchronisations"
     )
@@ -54,6 +53,7 @@ class DeepQLearningModelHyperParams(HyperParamsBase):
             "and Stable-Baselines3, whose parameter is the total count."
         ),
     )
+    weight_decay: float = Field(default=0.0, description="Weight decay (L2 regularization) for optimizer")
     seed: int = Field(default=42, description="Random seed")
 
 
