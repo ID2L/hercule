@@ -229,7 +229,7 @@ model is rebuilt on it.
       establishes that the oracle can detect what it exists to detect, and is the cheapest test in the
       feature
 - [X] T053 [P] [US1] Ship `experiments/sac_oracle.yaml` and `experiments/sac_pendulum.yaml` (FR-029)
-- [ ] T054 [US1] `tests/models/test_training_bars.py`, marked `slow` — SC-002: 90% of the oracle's
+- [X] T054 [US1] `tests/models/test_training_bars.py`, marked `slow` — SC-002: 90% of the oracle's
       optimum within 200 episodes, and **zero** out-of-bounds actions across the evaluation episodes;
       SC-001: strictly above `-200` over 20 evaluation episodes on `Pendulum-v1` within 500 episodes.
       A YAML plus `hercule learn` trains and asserts nothing — only this file can fail
