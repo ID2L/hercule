@@ -240,11 +240,11 @@ model is rebuilt on it.
 
 ## Phase 5 (US3, P2): Inspect, replay and compare a continuous agent
 
-- [ ] T055 [P] [US3] Assert `hercule play` runs a trained SAC agent and that every action it submits is
+- [X] T055 [P] [US3] Assert `hercule play` runs a trained SAC agent and that every action it submits is
       within the environment's declared bounds for a full episode (FR-010)
-- [ ] T056 [P] [US3] Assert `hercule report` produces a comparative report over a grid of SAC runs and
+- [X] T056 [P] [US3] Assert `hercule report` produces a comparative report over a grid of SAC runs and
       ranks them, with **no change to `reports/`** (FR-030)
-- [ ] T057 [P] [US3] Assert a SAC hyperparameter list expands to independent run directories under
+- [X] T057 [P] [US3] Assert a SAC hyperparameter list expands to independent run directories under
       distinct signatures (FR-021, User Story 1 scenario 1) and that a re-run at a higher epoch ceiling
       resumes rather than restarting (scenario 2)
 
