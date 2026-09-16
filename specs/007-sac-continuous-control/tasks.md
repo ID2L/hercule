@@ -128,107 +128,107 @@ model is rebuilt on it.
 
 ### The family-B abstraction
 
-- [ ] T024 [US1] Create `src/hercule/models/continuous_actor_critic/__init__.py` with
+- [X] T024 [US1] Create `src/hercule/models/continuous_actor_critic/__init__.py` with
       `ContinuousActorCriticModel(OffPolicyReplayModel)`, abstract: actor, two value estimators, two
       delayed copies, three optimizers. **No target actor** (FR-019)
-- [ ] T025 [US1] Set `requires_grad = False` on every delayed-copy parameter at construction — one
+- [X] T025 [US1] Set `requires_grad = False` on every delayed-copy parameter at construction — one
       half of the mechanism by which the learning target cannot leak gradient (FR-015); the other half
       is T032's `no_grad`
-- [ ] T026 [US1] Implement gradual averaging by `tau` inside `_update()`, once per **gradient** step,
+- [X] T026 [US1] Implement gradual averaging by `tau` inside `_update()`, once per **gradient** step,
       and leave `_target_sync_interval()` at its `None` default so the ancestor's hard copy never runs
       (FR-007)
 
 ### SAC's networks and declarations
 
-- [ ] T027 [US1] Create `src/hercule/models/sac/__init__.py` with `SACHyperParams`: `learning_rate`
+- [X] T027 [US1] Create `src/hercule/models/sac/__init__.py` with `SACHyperParams`: `learning_rate`
       3e-4, `discount_factor` 0.99, `tau` 0.005, `batch_size` 256, `replay_buffer_size` 100000,
       `step_modulo` 1, `learning_starts` 1000, `init_temperature` 1.0, `frame_stack` **0**,
       `weight_decay` 0.0, `seed` 42. Target entropy is **not** here: FR-017 fixes it at `-d`
-- [ ] T028 [US1] Declare `model_name = "sac"`, `hyperparams_class`, and
+- [X] T028 [US1] Declare `model_name = "sac"`, `hyperparams_class`, and
       `supported_spaces = frozenset({(SpaceKind.BOX, SpaceKind.BOX)})` — members must be `SpaceKind`
       values; a set of string pairs registers fine and then rejects every continuous environment
-- [ ] T029 [P] [US1] Implement `GaussianTanhActor`: `Encoder` → `Linear(h, 2*d)` → `(mean, log_std)`,
+- [X] T029 [P] [US1] Implement `GaussianTanhActor`: `Encoder` → `Linear(h, 2*d)` → `(mean, log_std)`,
       `log_std` clamped to `[-20, 2]` as module constants, not hyperparameters (research R4)
-- [ ] T030 [P] [US1] Implement `ContinuousCritic`: `Encoder(obs)` → concatenate the action →
+- [X] T030 [P] [US1] Implement `ContinuousCritic`: `Encoder(obs)` → concatenate the action →
       `Linear(f+d, 256)` → ReLU → `Linear(256, 1)`. It takes the action as an **input** and returns one
       value (FR-012); the deep model's observation-to-vector network cannot serve here
-- [ ] T031 [US1] Implement the squashing correction in its numerically stable form,
+- [X] T031 [US1] Implement the squashing correction in its numerically stable form,
       `Σ 2·(log 2 − u − softplus(−2u))` — the naive `Σ log(1 − tanh²)` underflows to `log(0)` for
       `|u| ≳ 9` in float32, which ordinary training reaches (research R5)
 
 ### The four learned quantities
 
-- [ ] T032 [US1] Implement the learning target of FR-015 exactly: reward, plus — suppressed **only**
+- [X] T032 [US1] Implement the learning target of FR-015 exactly: reward, plus — suppressed **only**
       on a terminal successor, never on a time-limit cut-off — discount × [lesser of the two **delayed**
       copies at an action **resampled from the current policy**, minus temperature × its log-density].
       Computed under `torch.no_grad()` so it is a constant for learning
-- [ ] T033 [US1] Implement the estimators' objective (FR-023): **both** regress toward that target, at
+- [X] T033 [US1] Implement the estimators' objective (FR-023): **both** regress toward that target, at
       the observation and action **as stored** in the replay history — not at a resampled action
-- [ ] T034 [US1] Implement the actor's objective (FR-022): lesser of the two **live** estimators at a
+- [X] T034 [US1] Implement the actor's objective (FR-022): lesser of the two **live** estimators at a
       differentiable sample, minus temperature × log-density, **confined to the actor's parameters** —
       no gradient onto the estimators or the temperature
-- [ ] T035 [US1] Implement the temperature (FR-024): learned by gradient descent on an objective whose
+- [X] T035 [US1] Implement the temperature (FR-024): learned by gradient descent on an objective whose
       gradient is `−(log-density + target entropy)`, the log-density held constant, and the optimised
       quantity is `log_alpha` so the temperature cannot cross zero and invert the entropy term
-- [ ] T036 [US1] Set `target_entropy = -d` from the action space at configure time (FR-017)
-- [ ] T037 [US1] Implement `_select_action`: uniform in normalised `[-1,1]^d` while
+- [X] T036 [US1] Set `target_entropy = -d` from the action space at configure time (FR-017)
+- [X] T037 [US1] Implement `_select_action`: uniform in normalised `[-1,1]^d` while
       `step_count < learning_starts`, then the policy — stochastic when training, **deterministic when
       not** (FR-014). Returns `(env_action, normalised_action)`; the warmup action is already in
       storage coordinates when it returns (research R6, obligation O3)
-- [ ] T038 [US1] Override `_ready_to_update()` to add `step_count >= learning_starts`, so no gradient
+- [X] T038 [US1] Override `_ready_to_update()` to add `step_count >= learning_starts`, so no gradient
       step is taken during the warmup
-- [ ] T039 [US1] Implement `_networks`, `_optimizers`, `_target_pairs`, `_extra_state` (`log_alpha`,
+- [X] T039 [US1] Implement `_networks`, `_optimizers`, `_target_pairs`, `_extra_state` (`log_alpha`,
       `frame_stack`, `observation_shape`) and `load_from_dict` — without the last, `hercule play` does
       not work on SAC and nothing else fails (FR-027)
 
 ### The direct tests
 
-- [ ] T040 [P] [US1] `tests/models/test_action_mapping.py` — SC-003: against the real
+- [X] T040 [P] [US1] `tests/models/test_action_mapping.py` — SC-003: against the real
       `CarRacing-v3(continuous=True)` action space, `u = -1` maps exactly to each dimension's `low` and
       `u = +1` to its `high`; **and** `act()`/`predict()` return environment coordinates
-- [ ] T041 [P] [US1] `tests/models/test_sac_objectives.py` — SC-010: the correction of T031 against the
+- [X] T041 [P] [US1] `tests/models/test_sac_objectives.py` — SC-010: the correction of T031 against the
       naive closed form on moderate inputs, computed in **normalised** coordinates, so both dropping it
       and measuring it in environment coordinates fail
-- [ ] T042 [US1] SC-011: the target of T032 clause by clause against a hand-computed value on a fixed
+- [X] T042 [US1] SC-011: the target of T032 clause by clause against a hand-computed value on a fixed
       batch. Six independent cases — live instead of delayed estimators; greater or mean instead of
       lesser; stored instead of resampled action; entropy added or omitted; bootstrap suppressed on a
       cut-off; **and** a non-value-level case asserting the actor, temperature and delayed copies
       received no gradient from the target
-- [ ] T043 [US1] SC-012: the actor and temperature objectives against hand-computed values, with each
+- [X] T043 [US1] SC-012: the actor and temperature objectives against hand-computed values, with each
       wrong form failing independently — delayed instead of live estimators, one instead of the lesser
       of two, entropy omitted, a sample carrying no gradient to the policy, a wrong temperature
       gradient, a temperature optimised directly and driven across zero, a reversed direction, and the
       non-value-level case that the estimators and the temperature received no gradient from the actor
-- [ ] T044 [US1] SC-013: both estimators move toward the target, each at the **stored** observation and
+- [X] T044 [US1] SC-013: both estimators move toward the target, each at the **stored** observation and
       action. Training only one, or regressing at a resampled action, leaves every other criterion green
-- [ ] T045 [P] [US1] `tests/models/test_sac_structure.py` — SC-014: `target_entropy == -d`, asserted on
+- [X] T045 [P] [US1] `tests/models/test_sac_structure.py` — SC-014: `target_entropy == -d`, asserted on
       an environment of **at least two** action dimensions so `-d` is distinguishable from `-1`
-- [ ] T046 [P] [US1] SC-015: the actor and the two estimators hold **pairwise disjoint** parameters —
+- [X] T046 [P] [US1] SC-015: the actor and the two estimators hold **pairwise disjoint** parameters —
       all three pairs. Sharing makes the checkpoint smaller, so no size criterion can catch it
-- [ ] T047 [P] [US1] `tests/models/test_polyak.py` — SC-016: the delayed copies advance once per
+- [X] T047 [P] [US1] `tests/models/test_polyak.py` — SC-016: the delayed copies advance once per
       gradient step and not once per environment step, under a configuration where the two clocks
       differ; each advance is the configured fraction toward the live parameters, hand-computed, so a
       hard copy on the right clock fails; and, from delayed copies **equal** to the live parameters,
       after one known non-zero update with `0 < tau < 1`, they differ
-- [ ] T048 [P] [US1] SC-017: evaluation is deterministic — two evaluation passes over the same
+- [X] T048 [P] [US1] SC-017: evaluation is deterministic — two evaluation passes over the same
       observation sequence give the same actions, two training steps do not
-- [ ] T049 [P] [US1] SC-009: extend `tests/supervisor/test_space_gating.py` — SAC paired with a
+- [X] T049 [P] [US1] SC-009: extend `tests/supervisor/test_space_gating.py` — SAC paired with a
       discrete-action environment is skipped with a message naming both kinds, while the other
       combinations in the same config still run
 
 ### The oracle and the first bars
 
-- [ ] T050 [US1] Create `src/hercule/environnements/oracle.py` with `AsymmetricOracleEnv` per contract
+- [X] T050 [US1] Create `src/hercule/environnements/oracle.py` with `AsymmetricOracleEnv` per contract
       C2: observation `Box([-1,2],[1,4])`, action `Box([-1,0],[1,4])`, target redrawn every step,
       `reward = 1 − 0.5·squared error`, 50 steps, always truncated
-- [ ] T051 [US1] Add the import to `src/hercule/environnements/__init__.py` so the registration runs.
+- [X] T051 [US1] Add the import to `src/hercule/environnements/__init__.py` so the registration runs.
       **Placing the module under the package does not execute it**, and without this line the config in
       T053 fails in a fresh process
-- [ ] T052 [P] [US1] `tests/environnements/test_asymmetric_oracle.py` — assert contract C2's five
+- [X] T052 [P] [US1] `tests/environnements/test_asymmetric_oracle.py` — assert contract C2's five
       closed-form rows: optimum 50.0, and each of the four degenerate policies below 45.0. This
       establishes that the oracle can detect what it exists to detect, and is the cheapest test in the
       feature
-- [ ] T053 [P] [US1] Ship `experiments/sac_oracle.yaml` and `experiments/sac_pendulum.yaml` (FR-029)
+- [X] T053 [P] [US1] Ship `experiments/sac_oracle.yaml` and `experiments/sac_pendulum.yaml` (FR-029)
 - [ ] T054 [US1] `tests/models/test_training_bars.py`, marked `slow` — SC-002: 90% of the oracle's
       optimum within 200 episodes, and **zero** out-of-bounds actions across the evaluation episodes;
       SC-001: strictly above `-200` over 20 evaluation episodes on `Pendulum-v1` within 500 episodes.
