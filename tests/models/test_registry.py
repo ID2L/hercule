@@ -16,12 +16,19 @@ from hercule.models import RLModel, create_model, get_available_models
 
 
 @pytest.mark.unit
-def test_registry_returns_exactly_the_four_concrete_models() -> None:
-    """`tdmodel` (the abstract `TDModel`) must not appear."""
+def test_registry_returns_exactly_the_concrete_models() -> None:
+    """The abstract intermediates must not appear, whatever package they live in.
+
+    `TDModel` is the original reason for this test. Feature 007 added two more --
+    `OffPolicyReplayModel` and `ContinuousActorCriticModel` -- and both live in
+    packages under `models/` that discovery scans, so they are exactly the kind of
+    phantom entry concrete-only registration exists to exclude.
+    """
     available = get_available_models()
 
-    assert set(available.keys()) == {"deep_q_learning", "dummy", "simple_q_learning", "simple_sarsa"}
-    assert "tdmodel" not in available
+    assert set(available.keys()) == {"deep_q_learning", "dummy", "sac", "simple_q_learning", "simple_sarsa"}
+    for abstract in ("tdmodel", "offpolicyreplaymodel", "continuousactorcriticmodel"):
+        assert abstract not in available
 
 
 @pytest.mark.unit
@@ -67,5 +74,5 @@ def test_create_model_error_names_available_models() -> None:
         create_model("not_a_real_model")
 
     message = str(exc_info.value)
-    for name in ("deep_q_learning", "dummy", "simple_q_learning", "simple_sarsa"):
+    for name in ("deep_q_learning", "dummy", "sac", "simple_q_learning", "simple_sarsa"):
         assert name in message

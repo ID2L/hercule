@@ -13,6 +13,13 @@ from pydantic import BaseModel
 
 from hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
 
+# Registering the oracle is an import side effect, and it has to be: placing
+# `oracle.py` under this package does NOT execute it, so without this import its
+# `gym.register` never runs and a config naming `AsymmetricOracle-v0` fails in a
+# fresh process. Everything that reaches an environment goes through this package,
+# so this is the one import that guarantees the registration is in place.
+from hercule.environnements.oracle import register as _register_oracle
+
 
 logger = logging.getLogger(__name__)
 
@@ -475,6 +482,10 @@ class EnvironmentManager:
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit - close all environments."""
         self.close_all()
+
+
+# Runs at import time, which is the point -- see the import's comment at the top.
+_register_oracle()
 
 
 __all__ = [

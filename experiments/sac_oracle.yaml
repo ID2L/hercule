@@ -1,0 +1,28 @@
+# Configuration for the AsymmetricOracle-v0 training bar (SC-002).
+#
+# The oracle is a two-dimensional environment with deliberately asymmetric action
+# bounds. Its optimum is a closed-form 50.0, and the success bar is 45.0 (90% of
+# the optimum). It exists because `Pendulum-v1` is one-dimensional and symmetric,
+# so per-dimension and action-mapping defects (e.g. a normalised policy output
+# forwarded unscaled to the environment) are structurally invisible there.
+
+name: "sac_oracle"
+
+environments:
+  - name: "AsymmetricOracle-v0"
+
+models:
+  - name: "sac"
+    hyperparameters:
+      - key: "learning_starts"
+        value: 500
+      - key: "batch_size"
+        value: 128
+      - key: "replay_buffer_size"
+        value: 20000
+      - key: "seed"
+        value: 42
+
+learn_max_epoch: 200
+test_epoch: 20
+base_output_dir: "outputs"

@@ -1,0 +1,25 @@
+# Configuration for the Pendulum-v1 training bar (SC-001).
+#
+# The bar is a mean test reward strictly above -200 over 20 evaluation episodes.
+# `Pendulum-v1` NEVER terminates -- every episode is truncated at 200 steps -- so
+# it is the first rung on which treating a time-limit cut-off as a terminal state
+# would train against a wrong target on 100% of episodes.
+
+name: "sac_pendulum"
+
+environments:
+  - name: "Pendulum-v1"
+
+models:
+  - name: "sac"
+    hyperparameters:
+      - key: "learning_starts"
+        value: 1000
+      - key: "batch_size"
+        value: 256
+      - key: "seed"
+        value: 42
+
+learn_max_epoch: 500
+test_epoch: 20
+base_output_dir: "outputs"
