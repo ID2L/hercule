@@ -42,6 +42,8 @@ and, if semantics change, a constitutional amendment.
 |--------------------|--------------------------------------------|-------------------------------------------|
 | `RLModel`          | `src/hercule/models/__init__.py`           | Abstract base for ALL RL algorithms       |
 | `TDModel`          | `src/hercule/models/td_models/__init__.py` | Abstract base for tabular TD algorithms   |
+| `OffPolicyReplayModel` | `src/hercule/models/off_policy/__init__.py` | Abstract base for replay-based off-policy algorithms |
+| `ContinuousActorCriticModel` | `src/hercule/models/continuous_actor_critic/__init__.py` | Abstract base for continuous actor-critic algorithms |
 | `BaseConfig`       | `src/hercule/config/__init__.py`           | Base Pydantic model for named configs     |
 | `HyperParamsBase`  | `src/hercule/config/__init__.py`           | Base for typed hyperparameter classes     |
 | `HerculeConfig`    | `src/hercule/config/__init__.py`           | Top-level experiment configuration        |
@@ -114,6 +116,45 @@ def update(self, state, action, reward, next_state, next_action) -> None: ...
 
 Everything else (Q-table init, epsilon-greedy, serialisation) is handled by
 `TDModel`.
+
+### OffPolicyReplayModel Extension Points
+
+`OffPolicyReplayModel` (`src/hercule/models/off_policy/__init__.py`) extends `RLModel` for
+algorithms that learn from a replay buffer — the episode loop, the buffer itself, frame stacking,
+observation rescaling, device/seeding and checkpoint assembly are all handled by the ancestor.
+Subclasses implement six abstract hooks:
+
+```python
+@abstractmethod def _build_networks(self) -> None: ...          # construct every parameterised module
+@abstractmethod def _build_optimizers(self) -> None: ...        # called right after _build_networks()
+@abstractmethod def _select_action(self, observation, training) -> tuple: ...  # (env_action, stored_action)
+@abstractmethod def _update(self, batch: list) -> None: ...     # one gradient step
+@abstractmethod def _networks(self) -> Mapping[str, nn.Module]: ...
+@abstractmethod def _optimizers(self) -> Mapping[str, optim.Optimizer]: ...
+```
+
+`_select_action` owns **all** exploration, warmup included — the ancestor never samples an action
+itself — and must return `(env_action, stored_action)`: the first drives `env.step()`, the second is
+what the replay buffer holds in the model's own coordinates (the same object when those coordinates
+are the environment's, e.g. any discrete-action model).
+
+A handful of further hooks are concrete with a default and only need overriding when they apply:
+`_ready_to_update()` (add a warmup condition), `_on_training_step()` (advance per-step state such as
+a decaying epsilon), `_sync_targets()` / `_target_pairs()` / `_target_sync_interval()` (a hard,
+periodic copy onto delayed networks — `None` by default, meaning never), and `_extra_state()` /
+`_load_extra_state()` (subclass-specific checkpoint payload, e.g. `epsilon` or a learned temperature,
+plus anything a network's shape depends on such as `frame_stack`). `_migrate_parameter_keys()` is
+identity by default and must be overridden whenever a module is renamed or re-nested, since a
+`state_dict`'s keys are attribute paths and `load_state_dict` is strict (see `CLAUDE.md`'s Gotchas).
+
+**Continuous action spaces**: `ContinuousActorCriticModel` (`src/hercule/models/continuous_actor_critic/`)
+extends `OffPolicyReplayModel` for actor-critic algorithms over a `Box` action space (an actor, two
+value estimators and their delayed copies, gradually averaged — no delayed actor). It inherits the
+ancestor's normalised-to-environment action mapping (`to_env_action`/`to_policy_action`, per
+dimension, cached only when the action space is a `Box`) and must store actions in the policy's own
+normalised coordinates in the replay buffer, converting to the environment's bounds only where the
+environment is actually stepped. See `src/hercule/models/sac/__init__.py` (`SACModel`) for a concrete
+example of both hook surfaces.
 
 ## Coding Standards
 

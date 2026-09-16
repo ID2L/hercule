@@ -480,3 +480,71 @@ end user reads.
   need different wording — in both `controller.generate_experiment_report` and the `hercule report` CLI, so a
   locked output is reported as "Cannot write report output: ..." and names the actionable fix (close the
   program holding the file) rather than blaming invalid input.
+- **A resumed off-policy run (DQN, SAC) restarts with an EMPTY replay buffer — this is expected behaviour,
+  not a bug.** `OffPolicyReplayModel._export()` (`src/hercule/models/off_policy/__init__.py`) checkpoints
+  every network including the delayed copies, every optimizer's state, all three random-number-generator
+  streams and the epoch/step counters — but never the replay buffer's *contents*. Storing every stored
+  transition would cost gigabytes per checkpoint (SAC's default `replay_buffer_size` is `100000`; an image
+  observation stacked several frames deep runs tens of KB each), which is the entire reason a *replay*
+  buffer exists in the first place rather than keeping the full history in the checkpoint. The consequence
+  is a genuine discontinuity in the learning curve at every resume: the buffer refills from empty, and no
+  gradient step happens again until `_ready_to_update()` sees `step_count >= learning_starts` and enough
+  transitions for one `batch_size`, so the curve visibly pauses or dips right at the resume point. This is
+  the single most likely thing in this feature to be misread as a defect in the resume logic — before
+  suspecting one, check whether the things that ARE checkpointed (optimizer state, the temperature, the
+  delayed copies' lag, all three RNG streams — SC-005) actually reverted; if they did not, the step in the
+  curve is the buffer doing exactly what it is documented to do.
+- **Module construction order is observable behaviour whenever a seeded RNG initialises weights — the
+  single most expensive thing to rediscover in this feature.** `nn.Linear` and `nn.Conv2d` draw from
+  torch's global RNG in their constructors, and `OffPolicyReplayModel.configure()`
+  (`src/hercule/models/off_policy/__init__.py`) seeds that RNG exactly once, immediately before
+  `_build_networks()`. That makes the ORDER and NUMBER of parameterised module constructions between the
+  seed call and the first forward pass part of the checkpoint format, not an implementation detail:
+  reordering two `nn.Linear` calls, or adding or removing one, produces different initial weights from an
+  identical seed, and the resulting diff in a bit-identity test (`tests/models/test_golden_fixture.py`)
+  looks exactly like a numerical bug in the algorithm while being nothing but a constructor-ordering
+  change. Two consequences that actually shaped this feature's code, not abstract caution:
+  - `Encoder`'s (`src/hercule/models/off_policy/__init__.py`) encoder/head split — reused by `QNetwork`
+    (`deep_q_learning`), `GaussianTanhActor` and `ContinuousCritic` (`sac`, `continuous_actor_critic`) —
+    falls at the LAST layer and nowhere else, because that is the only split that reproduces the
+    pre-refactor construction sequence on both the vector branch (`Linear→ReLU→Linear→ReLU`, then a head)
+    and the image branch (three `Conv2d`s, then `Flatten→Linear→ReLU`, then a head). `Encoder` therefore
+    builds its `nn.Sequential` eagerly in `__init__`, never lazily on first forward: a lazy build would move
+    parameter construction to an arbitrary later point relative to `configure()`'s seeding call.
+  - `DeepQLearningModel._build_networks()` still CONSTRUCTS `_target_network` as a second, independent
+    `QNetwork(...)` and only then overwrites it via `load_state_dict(self._q_network.state_dict())` —
+    rather than deep-copying the online network, which would look strictly simpler. The constructed target
+    weights are discarded immediately, but the constructor's second full sequence of `nn.Linear`/`nn.Conv2d`
+    RNG draws is NOT discarded: it advances torch's global RNG state by exactly as much as it always has,
+    and that state is itself part of the checkpoint (`rng_state_b64`). Switching to a copy would leave every
+    FRESH run bit-identical (nothing would consume the second sequence any more) but make every RESUMED run
+    diverge from a checkpoint already written by the current code, since the RNG state at save time would
+    differ from what a copy-based `_build_networks()` produces.
+- **A `state_dict`'s keys are attribute paths — renaming or re-nesting a module renames every key in every
+  checkpoint already written, and `load_state_dict` is strict by default, so the weights are right and the
+  load fails.** Measured on the pre-refactor `DeepQLearningModel`'s convolutional branch:
+  `self.network = nn.Sequential(self.conv_layers, self.fc_layers)` registered every convolutional and dense
+  parameter a SECOND time under `network.*`, on top of its own `conv_layers.*`/`fc_layers.*` registration —
+  20 state-dict entries for 10 actual tensors. `OffPolicyReplayModel._migrate_parameter_keys()`
+  (`src/hercule/models/off_policy/__init__.py`, overridden per model — see `DeepQLearningModel`'s
+  `_VECTOR_KEY_MIGRATION`/`_IMAGE_KEY_MIGRATION`) renames an older payload's keys onto the current
+  encoder/head layout, and on the image branch it drops the `network.*` aliases outright rather than
+  mapping them, since the current modules register each parameter exactly once.
+  This generalises past this one migration: a fixture that compares weight TENSORS is structurally blind to
+  it, because it never opens a file — `tests/fixtures/golden/dqn_baseline.json` re-trains fresh and hashes
+  `parameters()` in enumeration order, which does not care what the keys are named, so it stayed green
+  through the entire encoder/head rename. Bit-identity (does a fresh run produce the same numbers) and
+  loadability (does an old FILE on disk still load) are two different properties and need two different
+  tests: `tests/models/test_golden_fixture.py` for the former, `tests/models/test_checkpoint_compat.py` for
+  the latter — the second loads real pre-refactor `model.json` files committed under
+  `tests/fixtures/checkpoints/` and is the one that would have caught the rename breaking every checkpoint
+  already on disk. A related trap on the same refactor: a version-2 checkpoint's `optimizer_state_b64` keys
+  Adam's per-parameter moments (`exp_avg`/`exp_avg_sq`) by INTEGER INDEX into `parameters()`, not by name —
+  so `parameters()` enumeration order is load-bearing across any module restructuring even once every
+  state-dict KEY has migrated correctly. A key-correct migration that happened to change enumeration order
+  would still attach the wrong optimizer moments to the wrong tensor, silently, with no error and no wrong
+  weight hash, diverging only on the next gradient step. `test_checkpoint_compat.py`'s
+  `test_a_version_2_optimizer_state_attaches_to_the_right_parameters` certifies the order itself, not just
+  the names or the shapes — an earlier version of that test compared shapes and wrongly assumed that was
+  enough, since e.g. the vector branch has two parameters both shaped `(128,)` that a swap within the pair
+  would not have been caught by.
