@@ -173,10 +173,16 @@ replay store holds (FR-011, FR-012).
 | `learning_starts` | `1000` | length of the uniform-random warmup (FR-018) |
 | `init_temperature` | `1.0` | the initial temperature; the optimised quantity is its logarithm |
 | `frame_stack` | `0` | the deep model's default and the deep model's **semantics**: the number of *previous* observations concatenated to the current one, so `0` means the current frame alone and `3` means four frames. Gymnasium's own `FrameStackObservation` and Stable-Baselines3 count the total instead; this field deliberately does not |
-| `weight_decay` | `0.0` | |
 | `seed` | `42` | |
 
-**Not** a hyperparameter: the target entropy. FR-017 fixes it at `-d`, derived from the action space
+**Not** a hyperparameter: `weight_decay`, removed during implementation after review. Adam's weight
+decay adds an L2 term straight into the gradient, so any non-zero value makes the realised update
+differ from the actor and critic objectives FR-022 and FR-023 pin *exactly*. SAC's reference
+implementations do not use it, and admitting it would add a dimension to every grid sweep for no
+benefit this benchmark can measure. The deep model keeps its own, which is pre-existing and out of
+scope.
+
+**Not** a hyperparameter either: the target entropy. FR-017 fixes it at `-d`, derived from the action space
 at configure time. Exposing it would let a grid sweep contradict a requirement.
 
 `supported_spaces = {(BOX, BOX)}` — vector or image observations, continuous actions only (FR-020).

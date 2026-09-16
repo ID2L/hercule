@@ -96,28 +96,59 @@ def test_a_moved_live_network_leaves_its_delayed_copy_behind(sac: SACModel) -> N
 
 @pytest.mark.unit
 def test_the_copies_advance_on_the_gradient_clock_not_the_environment_clock(sac: SACModel) -> None:
-    """With `step_modulo = 3`, three environment steps produce one advance.
+    """With `step_modulo = 3`, EVERY gradient-eligible environment step produces exactly one advance.
 
-    Chaining the advance to the environment clock instead would divide the configured
-    lag by `step_modulo` -- silently, since nothing fails and the curve still rises.
+    The previous version of this check only asserted that at least one advance
+    happened and that every advance landed on a multiple of `step_modulo` -- a fact
+    guaranteed by `_ready_to_update()`'s own eligibility condition regardless of how
+    many times `_polyak_update()` actually runs. An implementation that advanced
+    exactly ONCE during the two full episodes below would satisfy both of those
+    checks (one advance is non-empty, and it necessarily lands on-clock), and so
+    would one that advanced twice per eligible step.
+
+    So this counts two things independently: every time `_ready_to_update()`
+    reports a step eligible (the ground truth for how many gradient steps SHOULD
+    have advanced the copies), and every time `_polyak_update()` actually runs. The
+    counts, and the exact step numbers, must match -- not merely "on-clock".
     """
+    eligible_steps = []
+    original_ready_to_update = SACModel._ready_to_update
+
+    def counting_ready_to_update(self) -> bool:
+        ready = original_ready_to_update(self)
+        if ready:
+            eligible_steps.append(self._step_count)
+        return ready
+
     advances = []
-    original = SACModel._polyak_update
+    original_polyak_update = SACModel._polyak_update
 
-    def counting(self, tau: float) -> None:
+    def counting_polyak_update(self, tau: float) -> None:
         advances.append(self._step_count)
-        original(self, tau)
+        original_polyak_update(self, tau)
 
-    SACModel._polyak_update = counting
+    SACModel._ready_to_update = counting_ready_to_update
+    SACModel._polyak_update = counting_polyak_update
+    steps_before = sac._step_count
     try:
-        # Fill the buffer so `_ready_to_update` is not gated on batch size.
         for _ in range(2):
             sac.run_epoch(train_mode=True)
     finally:
-        SACModel._polyak_update = original
+        SACModel._ready_to_update = original_ready_to_update
+        SACModel._polyak_update = original_polyak_update
 
-    assert advances, "no advance happened at all"
+    environment_steps = sac._step_count - steps_before
+    assert environment_steps > len(eligible_steps) > 0, (
+        "either no step was gradient-eligible, or every environment step was -- "
+        "this run does not exercise the gradient-clock-vs-environment-clock distinction"
+    )
     assert all(step % 3 == 0 for step in advances), f"advances happened off the gradient clock: {advances[:10]}"
+    assert len(advances) == len(eligible_steps), (
+        f"{len(advances)} advances for {len(eligible_steps)} gradient-eligible steps out of "
+        f"{environment_steps} environment steps -- an implementation advancing once per episode, "
+        "or more than once per eligible step, is not caught by an on-clock check alone"
+    )
+    assert advances == eligible_steps, "advances did not occur on exactly the eligible steps"
 
 
 @pytest.mark.unit

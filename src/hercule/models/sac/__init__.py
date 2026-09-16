@@ -73,8 +73,15 @@ class SACHyperParams(HyperParamsBase):
             "(0 = current frame only; 3 = current plus the 3 preceding, i.e. 4 frames)."
         ),
     )
-    weight_decay: float = Field(default=0.0, description="Weight decay (L2 regularization) for optimizers")
     seed: int = Field(default=42, description="Random seed")
+
+    # Deliberately no `weight_decay` field, unlike `DeepQLearningModel`. Adam's
+    # weight decay adds an L2 term straight into the gradient, so any non-zero
+    # value would make the realised update differ from the actor and critic
+    # objectives this module pins exactly (see `_update_actor`, `_learning_target`).
+    # SAC's own reference implementations do not use it either, and admitting it
+    # here would add a dimension to every hyperparameter grid sweep for no benefit
+    # this benchmark can measure.
 
 
 class GaussianTanhActor(nn.Module):
@@ -204,10 +211,10 @@ class SACModel(ContinuousActorCriticModel[SACHyperParams]):
         the checkpoint's optimizer mapping one entry per trained thing.
         """
         typed_params = self.get_hyperparameters()
-        rate, decay = typed_params.learning_rate, typed_params.weight_decay
-        self._actor_optimizer = optim.Adam(self._actor.parameters(), lr=rate, weight_decay=decay)
-        self._critic_1_optimizer = optim.Adam(self._critic_1.parameters(), lr=rate, weight_decay=decay)
-        self._critic_2_optimizer = optim.Adam(self._critic_2.parameters(), lr=rate, weight_decay=decay)
+        rate = typed_params.learning_rate
+        self._actor_optimizer = optim.Adam(self._actor.parameters(), lr=rate)
+        self._critic_1_optimizer = optim.Adam(self._critic_1.parameters(), lr=rate)
+        self._critic_2_optimizer = optim.Adam(self._critic_2.parameters(), lr=rate)
         self._temperature_optimizer = optim.Adam([self._log_alpha], lr=rate)
 
     def _optimizers(self) -> "Mapping[str, optim.Optimizer]":

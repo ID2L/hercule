@@ -19,6 +19,8 @@ both change no number at all. Their damage appears only as gradients arriving
 somewhere they should not, at the optimizer step.
 """
 
+import copy
+
 import gymnasium as gym
 import numpy as np
 import pytest
@@ -26,7 +28,7 @@ import torch
 
 import hercule.environnements  # noqa: F401  -- registers the oracle
 from hercule.environnements.oracle import ENVIRONMENT_ID
-from hercule.models.sac import SACModel
+from hercule.models.sac import GaussianTanhActor, SACModel
 
 
 BATCH = 4
@@ -76,23 +78,74 @@ def batch_tensors(sac: SACModel) -> dict:
 # --------------------------------------------------------------- SC-010, density
 
 
-@pytest.mark.unit
-def test_the_squashing_correction_matches_the_naive_closed_form(sac: SACModel) -> None:
-    """The stable rewriting equals the textbook expression where the latter is accurate.
+def _sample_with_fixed_noise(
+    actor: GaussianTanhActor, observations: torch.Tensor, noise: torch.Tensor, monkeypatch: pytest.MonkeyPatch
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Call `sample()` for real, but with `torch.randn_like` pinned to a known value.
 
-    The implementation uses `2 * (log 2 - u - softplus(-2u))` because
-    `log(1 - tanh(u)^2)` underflows to `-inf` for `|u|` above about 9 in float32,
-    which ordinary training reaches once the policy pushes an action toward a bound.
-    The naive form IS the independent reference this is checked against -- comparing
-    the stable form to itself would assert nothing -- so the comparison is made on
-    moderate inputs where the naive form is still exact.
+    This is what turns `sample()` into a deterministic function of `actor(observations)`'s
+    own `(mean, log_std)`: its output can then be recomputed independently, from
+    scratch, and compared against what `sample()` ACTUALLY returned -- rather than
+    two hand-written expressions compared only to each other, which is what the
+    tests below used to do without ever calling `sample()` at all.
     """
-    unsquashed = torch.tensor([[-2.0, -0.5], [0.0, 0.5], [1.5, 2.5]])
 
-    naive = torch.log(1.0 - torch.tanh(unsquashed) ** 2).sum(dim=-1)
-    stable = (2.0 * (float(np.log(2.0)) - unsquashed - torch.nn.functional.softplus(-2.0 * unsquashed))).sum(dim=-1)
+    def fake_randn_like(tensor: torch.Tensor, *args: object, **kwargs: object) -> torch.Tensor:
+        return noise
 
-    assert torch.allclose(naive, stable, atol=1e-5)
+    monkeypatch.setattr(torch, "randn_like", fake_randn_like)
+    return actor.sample(observations)
+
+
+def _independent_log_density(
+    mean: torch.Tensor, log_std: torch.Tensor, noise: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Recompute `sample()`'s action and log-density from scratch, given known noise.
+
+    Written independently of `sample()`'s own code, from the algorithm's textbook
+    form: a Gaussian log-density minus the tanh squashing correction. Returns
+    `(action, log_density_with_correction, log_density_without_correction)`, the
+    last one being what an implementation that OMITTED the correction would produce
+    -- the wrong form this whole check exists to distinguish from the right one.
+    """
+    std = log_std.exp()
+    unsquashed = mean + std * noise
+    gaussian_log_density = (-0.5 * (noise**2) - log_std - 0.5 * float(np.log(2.0 * np.pi))).sum(dim=-1)
+    squash_correction = (2.0 * (float(np.log(2.0)) - unsquashed - torch.nn.functional.softplus(-2.0 * unsquashed))).sum(
+        dim=-1
+    )
+    return torch.tanh(unsquashed), gaussian_log_density - squash_correction, gaussian_log_density
+
+
+@pytest.mark.unit
+def test_the_squashing_correction_matches_the_naive_closed_form(
+    sac: SACModel, batch_tensors: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`sample()`'s own output carries the squashing correction -- checked against `sample()` itself.
+
+    The previous version of this test compared two hand-written expressions to each
+    other and never called `GaussianTanhActor.sample()`; an implementation that
+    omitted the squashing correction entirely would still have passed it. Here the
+    noise is pinned via `torch.randn_like`, so `sample()`'s real output can be
+    reproduced from its own `mean`/`log_std` (via `actor(observations)`) plus that
+    known noise, entirely independently of `sample()`'s internals. The first
+    assertion checks the corrected form matches; the second checks that the
+    UNCORRECTED form does NOT match, so a dropped correction is caught rather than
+    silently accepted as "close enough".
+    """
+    observations = batch_tensors["observations"]
+    mean, log_std = sac._actor(observations)
+    torch.manual_seed(17)
+    noise = torch.randn(mean.shape)
+
+    action, log_density = _sample_with_fixed_noise(sac._actor, observations, noise, monkeypatch)
+    expected_action, expected_log_density, uncorrected_log_density = _independent_log_density(mean, log_std, noise)
+
+    assert torch.allclose(action, expected_action, atol=1e-5)
+    assert torch.allclose(log_density, expected_log_density, atol=1e-5)
+    assert not torch.allclose(log_density, uncorrected_log_density, atol=1e-4), (
+        "sample()'s log-density matches the UNCORRECTED Gaussian form -- the squashing correction is missing"
+    )
 
 
 @pytest.mark.unit
@@ -105,7 +158,9 @@ def test_the_naive_correction_really_does_underflow() -> None:
 
 
 @pytest.mark.unit
-def test_the_density_is_measured_in_normalised_coordinates(sac: SACModel, batch_tensors: dict) -> None:
+def test_the_density_is_measured_in_normalised_coordinates(
+    sac: SACModel, batch_tensors: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The density must not carry the environment rescaling's log-determinant.
 
     The oracle's action ranges are 2 and 4 wide, so the affine map to environment
@@ -113,18 +168,32 @@ def test_the_density_is_measured_in_normalised_coordinates(sac: SACModel, batch_
     sample. Including it would shift the entropy the temperature adapts against by a
     per-environment constant -- silently turning automatic temperature adjustment
     back into the per-environment tuning it exists to remove.
+
+    The previous version of this test compared `sample()`'s own output to itself
+    minus a constant -- true by construction for ANY implementation, since `x` never
+    equals `x` minus a nonzero constant. Here the comparison point is built
+    independently, the same way as the squashing-correction check above: pin the
+    noise, recompute the NORMALISED-coordinate density from `sample()`'s own
+    `mean`/`log_std`, and check `sample()`'s actual output against that oracle --
+    and against the oracle shifted by the environment map's own log-determinant,
+    which is a real, distinguishable quantity here (`log(2) != 0`), not a tautology.
     """
-    torch.manual_seed(11)
-    _, log_density = sac._actor.sample(batch_tensors["observations"])
+    observations = batch_tensors["observations"]
+    mean, log_std = sac._actor(observations)
+    torch.manual_seed(19)
+    noise = torch.randn(mean.shape)
+
+    _, log_density = _sample_with_fixed_noise(sac._actor, observations, noise, monkeypatch)
+    _, normalised_oracle, _ = _independent_log_density(mean, log_std, noise)
 
     scales = (sac._action_high - sac._action_low) / 2.0
     environment_offset = float(np.sum(np.log(scales)))
     assert environment_offset == pytest.approx(float(np.log(2.0)), abs=1e-6)
 
-    torch.manual_seed(11)
-    _, again = sac._actor.sample(batch_tensors["observations"])
-    assert torch.allclose(log_density, again), "the density is not reproducible, so the check below means nothing"
-    assert not torch.allclose(log_density, again - environment_offset), (
+    assert torch.allclose(log_density, normalised_oracle, atol=1e-5), (
+        "sample() does not match an independently recomputed NORMALISED-coordinate density"
+    )
+    assert not torch.allclose(log_density, normalised_oracle - environment_offset, atol=1e-6), (
         "the density appears to carry the environment map's log-determinant"
     )
 
@@ -192,7 +261,7 @@ def test_the_learning_target_matches_its_hand_computed_value(sac: SACModel, batc
         "stored-action",
         "entropy-added",
         "entropy-omitted",
-        "truncation-treated-as-terminal",
+        "terminal-not-suppressed",
     ],
 )
 def test_each_wrong_target_form_differs_from_the_right_one(
@@ -203,10 +272,96 @@ def test_each_wrong_target_form_differs_from_the_right_one(
     Without this, the test above would be satisfied by an implementation where the
     clause made no difference -- and the whole point is that each of these produces a
     model that trains and improves anyway.
+
+    Note the last id: `wrong_form["ignore_terminal"]` forces the mask to `1` for
+    EVERY transition, including a genuinely terminal one -- i.e. it tests failing to
+    SUPPRESS the bootstrap on a real terminal state. That is a real wrong form, but
+    it is not the terminated/truncated DISTINCTION itself (`_learning_target` never
+    receives `truncated` at all, so that distinction cannot be exercised at this
+    level) -- see `test_a_termination_and_a_truncation_produce_different_critic_updates`
+    below, which is.
     """
     right = _target_by_hand(sac, batch_tensors, torch_seed=101)
     wrong = _target_by_hand(sac, batch_tensors, torch_seed=101, **wrong_form)
     assert not torch.allclose(right, wrong, atol=1e-6)
+
+
+def _snapshot_sac_state(sac: SACModel) -> dict:
+    """Deep-copy every piece of state `_update()` can touch, for a fair back-to-back rerun."""
+    return {
+        "networks": {name: copy.deepcopy(module.state_dict()) for name, module in sac._networks().items()},
+        "optimizers": {name: copy.deepcopy(optimizer.state_dict()) for name, optimizer in sac._optimizers().items()},
+        "log_alpha": float(sac._log_alpha.item()),
+        "torch_rng": torch.get_rng_state(),
+    }
+
+
+def _restore_sac_state(sac: SACModel, snapshot: dict) -> None:
+    """Undo one `_update()` call, so the next one starts from bit-identical state.
+
+    Restores every network and optimizer `_update()` can mutate, the temperature,
+    and torch's global RNG -- `_update()` draws from it twice, through
+    `_actor.sample()` inside both `_learning_target()` and `_update_actor()` -- so a
+    second call reproduces the same draws the first one made.
+    """
+    for name, module in sac._networks().items():
+        module.load_state_dict(snapshot["networks"][name])
+    for name, optimizer in sac._optimizers().items():
+        optimizer.load_state_dict(snapshot["optimizers"][name])
+    with torch.no_grad():
+        sac._log_alpha.fill_(snapshot["log_alpha"])
+    torch.set_rng_state(snapshot["torch_rng"])
+
+
+@pytest.mark.unit
+def test_a_termination_and_a_truncation_produce_different_critic_updates(sac: SACModel) -> None:
+    """A truncation must keep the bootstrap term; a genuine termination must zero it.
+
+    `_learning_target()` never receives `truncated` at all -- only `_update()`
+    builds the `terminated` mask from the stored batch, so this distinction can only
+    be certified one level up, by actually calling `_update()`. Two batches, IDENTICAL
+    but for one transition's `(terminated, truncated)` pair -- `(False, True)` in one,
+    `(True, False)` in the other -- must produce DIFFERENT critic parameters after one
+    real gradient step from identical model state. The primary validation environment
+    (`AsymmetricOracleEnv`) truncates on every single episode and never terminates,
+    so a model that collapsed this distinction would train against a wrong target
+    100% of the time there, with nothing failing loudly.
+    """
+    generator = np.random.default_rng(9)
+    size = BATCH
+    observations = generator.uniform([-1.0, 2.0], [1.0, 4.0], size=(size, 2)).astype(np.float32)
+    next_observations = generator.uniform([-1.0, 2.0], [1.0, 4.0], size=(size, 2)).astype(np.float32)
+    actions = generator.uniform(-1.0, 1.0, size=(size, 2)).astype(np.float32)
+    rewards = generator.uniform(-1.0, 1.0, size=size).astype(np.float32)
+
+    def make_batch(*, first_terminated: bool, first_truncated: bool) -> list:
+        return [
+            (
+                observations[i],
+                actions[i],
+                float(rewards[i]),
+                next_observations[i],
+                first_terminated if i == 0 else False,
+                first_truncated if i == 0 else False,
+            )
+            for i in range(size)
+        ]
+
+    truncated_batch = make_batch(first_terminated=False, first_truncated=True)
+    terminated_batch = make_batch(first_terminated=True, first_truncated=False)
+
+    snapshot = _snapshot_sac_state(sac)
+    sac._update(truncated_batch)
+    after_truncated = [p.detach().clone() for p in sac._critic_1.parameters()]
+
+    _restore_sac_state(sac, snapshot)
+    sac._update(terminated_batch)
+    after_terminated = [p.detach().clone() for p in sac._critic_1.parameters()]
+
+    assert any(not torch.allclose(a, b) for a, b in zip(after_truncated, after_terminated, strict=True)), (
+        "a truncated and a terminated transition produced the same critic update -- "
+        "the terminated/truncated distinction is not reaching _update()"
+    )
 
 
 @pytest.mark.unit
@@ -231,26 +386,96 @@ def test_the_target_leaks_no_gradient(sac: SACModel, batch_tensors: dict) -> Non
 # ----------------------------------------------------- SC-012, actor and temperature
 
 
+def _reference_actor(sac: SACModel, state_dict: dict) -> GaussianTanhActor:
+    """An actor sharing NO tensors with `sac._actor`, initialised to a given state.
+
+    Used so a hand-derived loss can be stepped by a fresh optimizer without
+    touching `sac._actor` itself, keeping the "right form" and "wrong form"
+    computations independent of each other and of whatever `_update_actor()` does
+    to the model under test.
+    """
+    reference = GaussianTanhActor(sac._stacked_observation_shape, sac._action_dimensions)
+    reference.load_state_dict(state_dict)
+    return reference
+
+
+def _step_reference_actor(
+    sac: SACModel, state_dict: dict, observations: torch.Tensor, *, torch_seed: int, **wrong: bool
+) -> list[torch.Tensor]:
+    """Step an independent actor copy by one hand-computed loss -- the right form, or a wrong one.
+
+    A fresh `Adam`, configured with `sac._actor_optimizer`'s own hyperparameters,
+    takes exactly one step from `state_dict` against the loss requested. Returns the
+    resulting parameters, so the caller compares them against `_update_actor()`'s
+    OWN effect on `sac._actor` -- the thing this file exists to certify actually
+    happens, not two hand-written expressions compared only to each other.
+    """
+    reference = _reference_actor(sac, state_dict)
+    optimizer = torch.optim.Adam(reference.parameters(), **sac._actor_optimizer.defaults)
+
+    torch.manual_seed(torch_seed)
+    actions, log_density = reference.sample(observations)
+
+    critic_1 = sac._critic_1_target if wrong.get("delayed_critics") else sac._critic_1
+    critic_2 = sac._critic_2_target if wrong.get("delayed_critics") else sac._critic_2
+    if wrong.get("single_estimator"):
+        value = critic_1(observations, actions)
+    else:
+        value = torch.min(critic_1(observations, actions), critic_2(observations, actions))
+
+    entropy_term = 0.0 if wrong.get("omitted_entropy") else sac._alpha.detach() * log_density
+    loss = (entropy_term - value).mean()
+
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+    return [p.detach().clone() for p in reference.parameters()]
+
+
 @pytest.mark.unit
 def test_the_actor_objective_matches_its_hand_computed_value(sac: SACModel, batch_tensors: dict) -> None:
-    """Lesser of the two LIVE estimators, minus temperature times log-density."""
+    """`_update_actor()`'s own effect on the actor matches the hand-derived objective.
+
+    The previous version of this test computed an `expected` loss and several wrong
+    forms, then only asserted the wrong forms differed from `expected` -- it never
+    called `_update_actor()`, so a no-op implementation would have passed. Here
+    `_update_actor()` runs for real on `sac._actor`, and its effect is reproduced
+    from first principles by stepping an INDEPENDENT actor copy (sharing no tensors
+    with `sac._actor`) with a fresh, identically-configured optimizer against the
+    hand-derived loss, seeded to draw the same noise. The two must land at
+    bit-identical parameters -- that is the actual certification. Each wrong form is
+    then checked against `_update_actor()`'s REAL output, not against the hand
+    computation, so a wrong form that happens to coincide with a no-op or with
+    `_update_actor()`'s actual behaviour would still be caught.
+    """
     observations = batch_tensors["observations"]
+    before_state = {name: tensor.clone() for name, tensor in sac._actor.state_dict().items()}
+    before_params = [p.detach().clone() for p in sac._actor.parameters()]
+
+    expected_after = _step_reference_actor(sac, before_state, observations, torch_seed=5)
 
     torch.manual_seed(5)
-    actions, log_density = sac._actor.sample(observations)
-    value = torch.min(sac._critic_1(observations, actions), sac._critic_2(observations, actions))
-    expected = (sac._alpha.detach() * log_density - value).mean()
+    sac._update_actor(observations)
+    produced_after = [p.detach().clone() for p in sac._actor.parameters()]
 
-    torch.manual_seed(5)
-    actions, log_density = sac._actor.sample(observations)
-    delayed_value = torch.min(sac._critic_1_target(observations, actions), sac._critic_2_target(observations, actions))
-    with_delayed = (sac._alpha.detach() * log_density - delayed_value).mean()
-    single = (sac._alpha.detach() * log_density - sac._critic_1(observations, actions)).mean()
-    without_entropy = (-value).mean()
+    assert any(not torch.allclose(b, a) for b, a in zip(before_params, produced_after, strict=True)), (
+        "the actor's parameters did not move at all -- _update_actor() is a no-op on this batch"
+    )
+    for expected, produced in zip(expected_after, produced_after, strict=True):
+        assert torch.allclose(expected, produced, atol=1e-6), (
+            "_update_actor()'s real effect on the actor does not match the hand-derived objective"
+        )
 
-    assert not torch.allclose(expected, with_delayed), "delayed instead of live estimators is not detectable here"
-    assert not torch.allclose(expected, single), "one estimator instead of the lesser of two is not detectable here"
-    assert not torch.allclose(expected, without_entropy), "omitting the entropy term is not detectable here"
+    for wrong_form, message in [
+        ({"delayed_critics": True}, "delayed instead of live estimators is not detectable here"),
+        ({"single_estimator": True}, "one estimator instead of the lesser of two is not detectable here"),
+        ({"omitted_entropy": True}, "omitting the entropy term is not detectable here"),
+    ]:
+        wrong_after = _step_reference_actor(sac, before_state, observations, torch_seed=5, **wrong_form)
+        assert any(not torch.allclose(w, p, atol=1e-6) for w, p in zip(wrong_after, produced_after, strict=True)), (
+            message
+        )
 
 
 @pytest.mark.unit
@@ -295,6 +520,65 @@ def test_the_temperature_gradient_is_the_stated_one(sac: SACModel, batch_tensors
     expected = -(log_density + sac._target_entropy).mean()
     assert sac._log_alpha.grad is not None
     assert float(sac._log_alpha.grad) == pytest.approx(float(expected), abs=1e-6)
+
+
+@pytest.mark.unit
+def test_the_temperature_update_would_leak_into_the_actor_without_detaching(sac: SACModel, batch_tensors: dict) -> None:
+    """`_update_temperature()` performs no detaching of its own -- isolation is the CALLER's job.
+
+    The test above passes a standalone `torch.tensor` with no connection to the
+    actor at all, so it cannot detect a leak even in principle. This one passes a
+    log-density fresh off `_actor.sample()`, deliberately left attached to the
+    policy's graph, and confirms it DOES deposit a real gradient on the actor's
+    parameters -- measured here with the temperature moved off its coincidental
+    `log(1.0) == 0` default, which would otherwise mask the leak behind an
+    all-zero-but-still-present gradient. This is not a bug: it demonstrates why
+    `_update_actor()`'s detached return value (checked in the next test) is the
+    thing that actually prevents this in `_update()`'s real call sequence, not any
+    guard inside `_update_temperature()` itself.
+    """
+    with torch.no_grad():
+        sac._log_alpha.fill_(0.7)
+    for parameter in sac._actor.parameters():
+        parameter.grad = None
+
+    _, connected_log_density = sac._actor.sample(batch_tensors["observations"])
+    assert connected_log_density.requires_grad, (
+        "the log-density is not connected to the actor graph, so this proves nothing"
+    )
+
+    sac._update_temperature(connected_log_density)
+
+    assert any(p.grad is not None and torch.any(p.grad != 0) for p in sac._actor.parameters()), (
+        "no gradient reached the actor even though the log-density was left connected to its graph -- "
+        "this no longer demonstrates why _update_actor()'s detach matters"
+    )
+
+
+@pytest.mark.unit
+def test_the_actor_update_returns_a_detached_log_density(sac: SACModel, batch_tensors: dict) -> None:
+    """`_update_actor()`'s return value is detached -- the production guarantee against the leak above.
+
+    `_update()` always calls `_update_temperature()` with exactly this return
+    value, never a freshly-sampled, still-connected one. Checked two ways: the
+    tensor itself has `requires_grad is False`, AND calling `_update_temperature()`
+    with it deposits no gradient on the actor at all -- unlike the connected case
+    above, this holds regardless of the temperature's value, since the graph is
+    genuinely severed rather than merely multiplied by a small number.
+    """
+    log_density = sac._update_actor(batch_tensors["observations"])
+    assert log_density.requires_grad is False
+
+    with torch.no_grad():
+        sac._log_alpha.fill_(0.7)
+    for parameter in sac._actor.parameters():
+        parameter.grad = None
+
+    sac._update_temperature(log_density)
+
+    assert all(p.grad is None for p in sac._actor.parameters()), (
+        "the actor received gradient even from a properly detached log-density"
+    )
 
 
 @pytest.mark.unit

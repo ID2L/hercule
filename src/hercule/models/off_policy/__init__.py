@@ -70,20 +70,36 @@ class Encoder(nn.Module):
 
         if len(self.observation_shape) == 3:
             self._build_cnn()
+        elif len(self.observation_shape) == 1:
+            self._build_mlp(self.observation_shape[0], flatten=False)
         else:
-            size = (
-                self.observation_shape[0] if len(self.observation_shape) == 1 else int(np.prod(self.observation_shape))
-            )
-            self._build_mlp(size)
+            # PRE-EXISTING defect, fixed here: a rank other than 1 or 3 (e.g. a
+            # multi-axis Box observation of shape (2, 2)) sized its input from
+            # int(np.prod(observation_shape)) but forward() passed the tensor
+            # straight into the Linear stack without flattening it, so a batch
+            # arrived as (batch, 2, 2) against a Linear expecting 4 features.
+            # nn.Flatten() has no parameters -- it draws nothing from torch's
+            # RNG -- but it DOES occupy an index in the Sequential, so it is
+            # added ONLY on this path: the rank-1 path above and the rank-3 CNN
+            # path in _build_cnn() must keep their exact existing layer indices,
+            # which the golden fixture and the checkpoint key migration tables
+            # (_VECTOR_KEY_MIGRATION / _IMAGE_KEY_MIGRATION) both pin.
+            self._build_mlp(int(np.prod(self.observation_shape)), flatten=True)
 
-    def _build_mlp(self, input_size: int) -> None:
+    def _build_mlp(self, input_size: int, flatten: bool) -> None:
         """Two hidden layers, matching the shape this project has always used."""
-        self.layers = nn.Sequential(
-            nn.Linear(input_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
+        layers: list[nn.Module] = []
+        if flatten:
+            layers.append(nn.Flatten())
+        layers.extend(
+            [
+                nn.Linear(input_size, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+            ]
         )
+        self.layers = nn.Sequential(*layers)
         self.output_size = 128
 
     def _build_cnn(self) -> None:
@@ -259,10 +275,18 @@ class OffPolicyReplayModel(RLModel[HyperParamsType], ABC, Generic[HyperParamsTyp
         return True
 
     def _cache_action_bounds(self) -> None:
-        """Cache per-dimension action bounds, for a `Box` action space only."""
+        """Cache per-dimension action bounds, for a `Box` action space only.
+
+        Flattened (`.reshape(-1)`), regardless of the space's own shape: a
+        multi-axis `Box` (e.g. shape `(2, 2)`) stores its bounds with that same
+        shape, while `to_env_action`/`to_policy_action` work on the FLAT vector
+        the policy and the replay buffer actually use (`_action_dimensions` is
+        `int(np.prod(shape))`). Caching the bounds flat once here means the
+        mapping arithmetic never has to reconcile the two shapes itself.
+        """
         if isinstance(self._action_space, gym.spaces.Box):
-            self._action_low = np.asarray(self._action_space.low, dtype=np.float32)
-            self._action_high = np.asarray(self._action_space.high, dtype=np.float32)
+            self._action_low = np.asarray(self._action_space.low, dtype=np.float32).reshape(-1)
+            self._action_high = np.asarray(self._action_space.high, dtype=np.float32).reshape(-1)
         else:
             self._action_low = None
             self._action_high = None
@@ -419,6 +443,12 @@ class OffPolicyReplayModel(RLModel[HyperParamsType], ABC, Generic[HyperParamsTyp
         negative throttle and negative brake. Gymnasium does not reject that; the
         car simply never accelerates, and the run still produces a plausible reward
         curve.
+
+        `normalised` is FLAT (`_action_dimensions` elements), matching what the
+        policy and the replay buffer use. The result is reshaped back to the
+        action space's own declared shape before returning, so a multi-axis `Box`
+        (e.g. shape `(2, 2)`) gets back exactly what `env.step()` expects rather
+        than the flat vector the arithmetic is done on.
         """
         if self._action_low is None or self._action_high is None:
             msg = (
@@ -429,16 +459,24 @@ class OffPolicyReplayModel(RLModel[HyperParamsType], ABC, Generic[HyperParamsTyp
             raise ValueError(msg)
         bias = (self._action_high + self._action_low) / 2.0
         scale = (self._action_high - self._action_low) / 2.0
-        return bias + scale * np.asarray(normalised, dtype=np.float32)
+        env_action = bias + scale * np.asarray(normalised, dtype=np.float32).reshape(-1)
+        return env_action.reshape(self._action_space.shape)
 
     def to_policy_action(self, env_action: np.ndarray) -> np.ndarray:
-        """Inverse of `to_env_action`, per dimension."""
+        """
+        Inverse of `to_env_action`, per dimension.
+
+        `env_action` carries the action space's own shape (e.g. `(2, 2)`); it is
+        flattened before the arithmetic, matching the flat bounds cached by
+        `_cache_action_bounds()`, and the result is the flat normalised vector the
+        policy and the replay buffer use.
+        """
         if self._action_low is None or self._action_high is None:
             msg = "Action mapping is only defined for a Box action space"
             raise ValueError(msg)
         bias = (self._action_high + self._action_low) / 2.0
         scale = (self._action_high - self._action_low) / 2.0
-        return (np.asarray(env_action, dtype=np.float32) - bias) / scale
+        return (np.asarray(env_action, dtype=np.float32).reshape(-1) - bias) / scale
 
     # -------------------------------------------------------------- episode loop
 
