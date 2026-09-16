@@ -97,9 +97,9 @@ class MultiAxisObservationEnv(gym.Env):
         return self.observation_space.sample(), 0.0, False, truncated, {}
 
 
-def _configured(env: gym.Env) -> SACModel:
+def _configured(env: gym.Env, *, learning_starts: int = 0) -> SACModel:
     model = SACModel()
-    assert model.configure(env, {"seed": 1, "learning_starts": 0})
+    assert model.configure(env, {"seed": 1, "learning_starts": learning_starts})
     model.env = env
     return model
 
@@ -108,16 +108,26 @@ def _configured(env: gym.Env) -> SACModel:
 def test_multi_axis_box_action_space_end_to_end() -> None:
     """Every action submitted to `env.step()` is in-bounds and correctly shaped.
 
-    Runs a full training epoch (`train_mode=True`), so this exercises the warmup
-    branch of `_select_action` (uniform draw, mapped) and, once past
-    `learning_starts=0`, the actor-sampled branch too -- both call `to_env_action`.
+    `MultiAxisActionEnv` truncates after 8 steps, and `learning_starts=4` is set
+    below that, so a single training epoch (`train_mode=True`) exercises BOTH
+    branches of `_select_action`: the first 4 steps take the warmup branch (uniform
+    draw, mapped through `to_env_action`), the remaining ones take the
+    actor-sampled branch (also mapped through `to_env_action`) -- `learning_starts=0`
+    would only ever exercise the second, since the warmup condition
+    `training and self._step_count < learning_starts` is never true. The step count
+    is asserted to actually cross `learning_starts` mid-episode, so this is checked
+    rather than merely claimed.
     """
     env = MultiAxisActionEnv()
-    model = _configured(env)
+    learning_starts = 4
+    model = _configured(env, learning_starts=learning_starts)
 
     model.run_epoch(train_mode=True)
 
     assert env.submitted_actions, "the episode produced no steps to check"
+    assert len(env.submitted_actions) > learning_starts, (
+        "the episode did not cross learning_starts -- the warmup and actor-sampled branches were not both exercised"
+    )
     for action in env.submitted_actions:
         assert action.shape == env.action_space.shape, f"{action.shape} != {env.action_space.shape}"
         assert env.action_space.contains(action), f"{action} outside {env.action_space}"

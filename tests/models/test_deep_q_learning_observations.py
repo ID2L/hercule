@@ -62,6 +62,22 @@ class _DiscreteObsEnv(_ImageEnv):
         self.observation_space = gym.spaces.Discrete(16)
 
 
+class _BoundedFloatEnv(_ImageEnv):
+    """A finite, non-uniform-looking Box, float32, so rescaling is active.
+
+    `low=-2.0, high=2.0` yields offset=-2.0/scale=4.0 -- neither the identity
+    neutral value -- so `_obs_offset_operand`/`_obs_scale_operand` are both set
+    and `_as_network_input` actually exercises `sub_`/`div_` on a float32 array,
+    the exact case in which `torch.from_numpy(...).to(device, dtype=float32)`
+    returns the SAME tensor as the input (no dtype/device conversion needed) and
+    would otherwise alias the caller's array.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.observation_space = gym.spaces.Box(low=-2.0, high=2.0, shape=(2,), dtype=np.float32)
+
+
 def _configure(env: gym.Env, **overrides: object) -> DeepQLearningModel:
     model = DeepQLearningModel()
     hyperparameters = {"learning_rate": 0.001, "batch_size": 4, "replay_buffer_size": 100, "seed": 42}
@@ -146,6 +162,43 @@ def test_discrete_space_is_scaled_by_its_cardinality() -> None:
 
     assert model._obs_scale == pytest.approx(15.0)
     assert model._as_network_input(np.array([15])).item() == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_as_network_input_never_mutates_the_caller_array_float32() -> None:
+    """The aliasing case: an already-float32 CPU array must not be written to.
+
+    `torch.from_numpy` shares memory with the array, and `Tensor.to(device,
+    dtype)` returns `self` -- not a copy -- when the array already matches the
+    target dtype and device. Without an explicit copy, the in-place `sub_`/`div_`
+    rescaling below would then write straight through to `observation`.
+    """
+    model = _configure(_BoundedFloatEnv(), frame_stack=0)
+    observation = np.array([0.5, 1.0], dtype=np.float32)
+    before = observation.copy()
+
+    result = model._as_network_input(observation)
+
+    assert observation.tolist() == before.tolist(), f"caller array was mutated: {observation} != {before}"
+    # And the rescaling itself is still correct: (0.5 - (-2.0)) / 4.0, (1.0 - (-2.0)) / 4.0.
+    assert result.tolist() == pytest.approx([0.625, 0.75])
+
+
+@pytest.mark.unit
+def test_as_network_input_never_mutates_the_caller_array_uint8() -> None:
+    """The converting case: a uint8 array must also come back unchanged.
+
+    `.to(dtype=torch.float32)` already allocates a new tensor here since the
+    dtype differs, so this path never aliased the input even before the fix --
+    kept as a regression test so the two cases stay covered side by side.
+    """
+    model = _configure(_ImageEnv(), frame_stack=0)
+    observation = np.full((IMAGE_SIDE, IMAGE_SIDE, 3), 255, dtype=np.uint8)
+    before = observation.copy()
+
+    model._as_network_input(observation)
+
+    assert np.array_equal(observation, before), "caller array was mutated"
 
 
 @pytest.mark.unit

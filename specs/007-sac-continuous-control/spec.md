@@ -336,7 +336,10 @@ recorded in this specification**.
   exploration schedule. The quantity actually optimised MUST be the temperature's **logarithm**, so
   that the temperature stays strictly positive for any step size — an unconstrained temperature that
   crosses zero inverts the sign of the entropy term in FR-015 and FR-022 without any error being
-  raised. The resulting behaviour, which is what the criterion checks end to end, is that the
+  raised. In float32, `exp()` alone underflows to exactly `0.0` once the logarithm drops below about
+  -104, so the log-parameterisation is not sufficient by itself and MUST be paired with a clamp on the
+  logarithm's own range to keep the positivity guarantee true in floating point, not merely in exact
+  arithmetic. The resulting behaviour, which is what the criterion checks end to end, is that the
   temperature **rises when the policy's measured entropy falls below the target** and **falls when it
   rises above**. The direction is stated as well as the objective because the opposite sign produces
   a temperature that moves, a policy that trains, and a curve that rises — while exploration collapses

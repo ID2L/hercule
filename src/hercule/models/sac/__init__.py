@@ -46,6 +46,18 @@ logger = logging.getLogger(__name__)
 LOG_STD_MIN = -20.0
 LOG_STD_MAX = 2.0
 
+# Bounds on the learned temperature's LOGARITHM. Also a numerical guard, exactly
+# like the log-std clamp above, not an algorithmic choice a benchmark should sweep.
+# Optimising the logarithm keeps the temperature positive in exact arithmetic for
+# any step size, but float32 `exp()` underflows to exactly `0.0` once its argument
+# drops below roughly -104 -- at which point the entropy term vanishes from both the
+# learning target and the actor objective with no error raised. `exp(LOG_ALPHA_MIN)`
+# is about 2e-9: small enough to be no exploration at all, and still strictly
+# positive and representable. `exp(LOG_ALPHA_MAX)` bounds the other end against
+# overflow.
+LOG_ALPHA_MIN = -20.0
+LOG_ALPHA_MAX = 20.0
+
 
 class SACHyperParams(HyperParamsBase):
     """Type-safe hyperparameters for Soft Actor-Critic.
@@ -152,11 +164,14 @@ class SACModel(ContinuousActorCriticModel[SACHyperParams]):
     # model does not need.
     supported_spaces: ClassVar[frozenset[tuple[SpaceKind, SpaceKind]]] = frozenset({(SpaceKind.BOX, SpaceKind.BOX)})
 
-    # The learned temperature, held as its LOGARITHM. Optimising the logarithm is
-    # what keeps the temperature strictly positive for any step size: an
-    # unconstrained temperature that crosses zero inverts the sign of the entropy
-    # term in both the learning target and the actor's objective, with no error
-    # raised anywhere.
+    # The learned temperature, held as its LOGARITHM. Optimising the logarithm keeps
+    # the temperature strictly positive for any step size WITHIN the clamp
+    # (`LOG_ALPHA_MIN`/`LOG_ALPHA_MAX`): an unconstrained temperature that crosses
+    # zero inverts the sign of the entropy term in both the learning target and the
+    # actor's objective, with no error raised anywhere. The clamp is what makes that
+    # guarantee true in float32 rather than merely true in exact arithmetic --
+    # without it, `exp()` underflows to exactly `0.0` once the logarithm drops below
+    # roughly -104.
     _log_alpha: torch.Tensor | None = PrivateAttr(default=None)
     _temperature_optimizer: optim.Optimizer | None = PrivateAttr(default=None)
     _target_entropy: float = PrivateAttr(default=0.0)
@@ -381,11 +396,23 @@ class SACModel(ContinuousActorCriticModel[SACHyperParams]):
         temperature that moves, a policy that trains and a curve that rises, while
         exploration collapses or diverges -- which is why the direction is stated as
         well as the objective.
+
+        After the optimizer step, `_log_alpha` is clamped in place to
+        `[LOG_ALPHA_MIN, LOG_ALPHA_MAX]`. This leaves the objective and its gradient
+        exactly as stated above -- it only bounds the state the optimizer carries
+        forward -- and is what keeps the temperature strictly positive **in
+        float32** for any step size, rather than merely in exact arithmetic: without
+        it, enough gradient steps in one direction drive the logarithm past about
+        -104, where `exp()` underflows to exactly `0.0` and the entropy term
+        vanishes from both the learning target and the actor objective with no error
+        raised.
         """
         loss = -(self._log_alpha * (log_density + self._target_entropy)).mean()
         self._temperature_optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self._temperature_optimizer.step()
+        with torch.no_grad():
+            self._log_alpha.clamp_(LOG_ALPHA_MIN, LOG_ALPHA_MAX)
 
     # ---------------------------------------------------------------- checkpoint
 

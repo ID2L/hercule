@@ -28,6 +28,7 @@ import torch
 
 import hercule.environnements  # noqa: F401  -- registers the oracle
 from hercule.environnements.oracle import ENVIRONMENT_ID
+from hercule.models.continuous_actor_critic import ContinuousCritic
 from hercule.models.sac import GaussianTanhActor, SACModel
 
 
@@ -313,34 +314,86 @@ def _restore_sac_state(sac: SACModel, snapshot: dict) -> None:
     torch.set_rng_state(snapshot["torch_rng"])
 
 
+def _reference_critic(sac: SACModel, state_dict: dict) -> ContinuousCritic:
+    """A critic sharing NO tensors with either of `sac`'s own estimators, initialised to a given state.
+
+    Mirrors `_reference_actor` below: a hand-derived loss can be stepped by a fresh
+    optimizer without touching `sac`'s own critics, keeping the "right form"/"wrong
+    form" computations independent of each other and of whatever `_update_critics()`
+    does to the model under test.
+    """
+    reference = ContinuousCritic(sac._stacked_observation_shape, sac._action_dimensions)
+    reference.load_state_dict(state_dict)
+    return reference
+
+
+def _step_reference_critic(
+    sac: SACModel,
+    state_dict: dict,
+    optimizer_defaults: dict,
+    observations: torch.Tensor,
+    actions: torch.Tensor,
+    target: torch.Tensor,
+) -> list[torch.Tensor]:
+    """Step an independent critic copy by one hand-computed MSE loss at the given actions.
+
+    A fresh `Adam`, configured with the real optimizer's own hyperparameters, takes
+    exactly one step from `state_dict` against `mse_loss(critic(observations,
+    actions), target)`. Returns the resulting parameters, so the caller compares
+    them against `_update_critics()`'s OWN effect on the real critic -- the thing
+    this file exists to certify actually happens, not two hand-written expressions
+    compared only to each other.
+    """
+    reference = _reference_critic(sac, state_dict)
+    optimizer = torch.optim.Adam(reference.parameters(), **optimizer_defaults)
+
+    loss = torch.nn.functional.mse_loss(reference(observations, actions), target)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+    return [p.detach().clone() for p in reference.parameters()]
+
+
 @pytest.mark.unit
 def test_a_termination_and_a_truncation_produce_different_critic_updates(sac: SACModel) -> None:
     """A truncation must keep the bootstrap term; a genuine termination must zero it.
 
-    `_learning_target()` never receives `truncated` at all -- only `_update()`
-    builds the `terminated` mask from the stored batch, so this distinction can only
-    be certified one level up, by actually calling `_update()`. Two batches, IDENTICAL
-    but for one transition's `(terminated, truncated)` pair -- `(False, True)` in one,
-    `(True, False)` in the other -- must produce DIFFERENT critic parameters after one
-    real gradient step from identical model state. The primary validation environment
-    (`AsymmetricOracleEnv`) truncates on every single episode and never terminates,
-    so a model that collapsed this distinction would train against a wrong target
-    100% of the time there, with nothing failing loudly.
+    The previous version of this test only asserted that the two resulting critic
+    updates DIFFER. That is too weak: if `_update()` built its terminal mask from
+    the batch's SIXTH field (`truncated`) instead of the FIFTH (`terminated`), the
+    two batches below -- which swap which flag is set on their first transition --
+    would still produce different critic parameters, with the bootstrap suppressed
+    in exactly the wrong one, and the old assertion would stay green.
+
+    This version establishes WHICH flag suppresses. `_learning_target()` is called
+    directly, with a mask built from the CORRECT field (`terminated` only), to
+    confirm the two batches' first transition would get different targets: the
+    terminated one's target equals the bare reward (bootstrap suppressed), the
+    truncated one's still carries the discounted bootstrap term (differs from the
+    bare reward). Then, from identical model state and under the same torch RNG
+    state `_update()` itself would consume for its one random draw inside
+    `_learning_target()`, `_update()` is run for real on each batch and its actual
+    effect on `_critic_1` is compared -- bit-for-bit -- against a reference critic
+    stepped, with a fresh identically-configured `Adam`, against that SAME
+    correctly-masked target. A swapped field inside `_update()` would make its real
+    result match a reference stepped against the OPPOSITE mask instead, which this
+    catches at the parameter level.
     """
     generator = np.random.default_rng(9)
     size = BATCH
-    observations = generator.uniform([-1.0, 2.0], [1.0, 4.0], size=(size, 2)).astype(np.float32)
-    next_observations = generator.uniform([-1.0, 2.0], [1.0, 4.0], size=(size, 2)).astype(np.float32)
-    actions = generator.uniform(-1.0, 1.0, size=(size, 2)).astype(np.float32)
-    rewards = generator.uniform(-1.0, 1.0, size=size).astype(np.float32)
+    observations_np = generator.uniform([-1.0, 2.0], [1.0, 4.0], size=(size, 2)).astype(np.float32)
+    next_observations_np = generator.uniform([-1.0, 2.0], [1.0, 4.0], size=(size, 2)).astype(np.float32)
+    actions_np = generator.uniform(-1.0, 1.0, size=(size, 2)).astype(np.float32)
+    rewards_np = generator.uniform(-1.0, 1.0, size=size).astype(np.float32)
 
     def make_batch(*, first_terminated: bool, first_truncated: bool) -> list:
         return [
             (
-                observations[i],
-                actions[i],
-                float(rewards[i]),
-                next_observations[i],
+                observations_np[i],
+                actions_np[i],
+                float(rewards_np[i]),
+                next_observations_np[i],
                 first_terminated if i == 0 else False,
                 first_truncated if i == 0 else False,
             )
@@ -350,18 +403,66 @@ def test_a_termination_and_a_truncation_produce_different_critic_updates(sac: SA
     truncated_batch = make_batch(first_terminated=False, first_truncated=True)
     terminated_batch = make_batch(first_terminated=True, first_truncated=False)
 
-    snapshot = _snapshot_sac_state(sac)
+    # The mask built from the CORRECT field only (`terminated`, index 4) -- never
+    # `truncated` (index 5) -- independently of whatever `_update()` actually does.
+    mask_for_truncated_batch = torch.tensor([0.0, 0.0, 0.0, 0.0])
+    mask_for_terminated_batch = torch.tensor([1.0, 0.0, 0.0, 0.0])
+
+    # `.copy()` matters: `_as_network_input()` rescales in place, and
+    # `torch.from_numpy` shares memory with an already-float32 array, so calling it
+    # directly on `observations_np`/`next_observations_np` would silently corrupt
+    # the batches above, which hold VIEWS into those same arrays (`observations_np[i]`).
+    observations = sac._as_network_input(observations_np.copy())
+    next_observations = sac._as_network_input(next_observations_np.copy())
+    actions = torch.as_tensor(actions_np)
+    rewards = torch.as_tensor(rewards_np)
+    discount = sac.get_hyperparameters().discount_factor
+
+    snapshot0 = _snapshot_sac_state(sac)
+    critic_1_state = {n: t.clone() for n, t in sac._critic_1.state_dict().items()}
+    critic_1_optimizer_defaults = sac._critic_1_optimizer.defaults
+
+    # --- truncated batch: the correct mask keeps the bootstrap on transition 0 ---
+    _restore_sac_state(sac, snapshot0)
+    target_if_truncated = sac._learning_target(rewards, next_observations, mask_for_truncated_batch, discount)
+
+    _restore_sac_state(sac, snapshot0)  # same starting RNG state as `_update()` will consume below
     sac._update(truncated_batch)
-    after_truncated = [p.detach().clone() for p in sac._critic_1.parameters()]
+    produced_after_truncated = [p.detach().clone() for p in sac._critic_1.parameters()]
 
-    _restore_sac_state(sac, snapshot)
-    sac._update(terminated_batch)
-    after_terminated = [p.detach().clone() for p in sac._critic_1.parameters()]
-
-    assert any(not torch.allclose(a, b) for a, b in zip(after_truncated, after_terminated, strict=True)), (
-        "a truncated and a terminated transition produced the same critic update -- "
-        "the terminated/truncated distinction is not reaching _update()"
+    expected_after_truncated = _step_reference_critic(
+        sac, critic_1_state, critic_1_optimizer_defaults, observations, actions, target_if_truncated
     )
+
+    # --- terminated batch: the correct mask suppresses the bootstrap on transition 0 ---
+    _restore_sac_state(sac, snapshot0)
+    target_if_terminated = sac._learning_target(rewards, next_observations, mask_for_terminated_batch, discount)
+
+    _restore_sac_state(sac, snapshot0)
+    sac._update(terminated_batch)
+    produced_after_terminated = [p.detach().clone() for p in sac._critic_1.parameters()]
+
+    expected_after_terminated = _step_reference_critic(
+        sac, critic_1_state, critic_1_optimizer_defaults, observations, actions, target_if_terminated
+    )
+
+    assert torch.allclose(target_if_terminated[0], rewards[0], atol=1e-6), (
+        "a genuinely terminated transition's target should equal the bare reward -- the bootstrap must be suppressed"
+    )
+    assert not torch.allclose(target_if_truncated[0], rewards[0], atol=1e-6), (
+        "a truncated transition's target should still carry the discounted bootstrap term"
+    )
+
+    for expected, produced in zip(expected_after_truncated, produced_after_truncated, strict=True):
+        assert torch.allclose(expected, produced, atol=1e-6), (
+            "_update()'s critic update for the truncated batch does not match regression against "
+            "the correctly-masked (bootstrap-kept) target -- is _update() reading the wrong flag?"
+        )
+    for expected, produced in zip(expected_after_terminated, produced_after_terminated, strict=True):
+        assert torch.allclose(expected, produced, atol=1e-6), (
+            "_update()'s critic update for the terminated batch does not match regression against "
+            "the correctly-masked (bootstrap-suppressed) target -- is _update() reading the wrong flag?"
+        )
 
 
 @pytest.mark.unit
@@ -609,14 +710,27 @@ def test_the_temperature_is_optimised_through_its_logarithm(sac: SACModel) -> No
     """A temperature crossing zero would invert the entropy term with no error raised.
 
     Driven hard in one direction under a large step size, `alpha` must stay strictly
-    positive -- which it does because the optimised quantity is its logarithm.
+    positive -- which the log-parameterisation alone only guarantees in exact
+    arithmetic. In float32, `exp()` underflows to exactly `0.0` once the logarithm
+    drops below roughly -104; 20 iterations at `lr=5.0` (the previous version of
+    this test) only reach about -100, a positive subnormal that narrowly misses the
+    underflow this test exists to catch. Driven for many more iterations, `log_alpha`
+    would cross -104 and `_alpha` would hit exactly zero without the clamp in
+    `_update_temperature()` -- so this asserts both strict positivity and finiteness
+    well past that boundary, which the clamp is what makes true.
     """
     for group in sac._temperature_optimizer.param_groups:
         group["lr"] = 5.0
     drive_down = torch.full((BATCH,), -sac._target_entropy - 10.0)
-    for _ in range(20):
+    for _ in range(200):
         sac._update_temperature(drive_down)
-    assert float(sac._alpha) > 0.0
+    # With a constant gradient of 10 (log_density is a fixed input here, not a
+    # function of log_alpha) and Adam's step size converging to ~lr per iteration,
+    # 200 iterations at lr=5.0 drive the UNCLAMPED logarithm to roughly -1000 -- far
+    # past the ~-104 float32 underflow boundary, where `exp()` would be exactly
+    # `0.0`. This is what makes the assertions below meaningful rather than
+    # coincidental.
+    assert float(sac._alpha) > 0.0, "the temperature underflowed to exactly zero"
     assert np.isfinite(float(sac._alpha))
 
 
@@ -624,40 +738,57 @@ def test_the_temperature_is_optimised_through_its_logarithm(sac: SACModel) -> No
 
 
 @pytest.mark.unit
-def test_both_estimators_move_toward_the_target(sac: SACModel, batch_tensors: dict) -> None:
-    """BOTH, and at the STORED action.
+def test_update_critics_matches_the_hand_computed_regression_at_the_stored_action(
+    sac: SACModel, batch_tensors: dict
+) -> None:
+    """`_update_critics()`'s own effect on BOTH estimators matches MSE regression at the STORED action.
 
-    Training only one leaves the other drifting while the lesser-of-two still reads
-    it; regressing at an action resampled from the current policy is the target
-    side's construct and belongs only there.
+    Same gap the actor objective test had, and repaired the same way. The previous
+    pair of tests never tied the check to `_update_critics()`'s REAL effect:
+    `test_both_estimators_move_toward_the_target` only checked that predictions at
+    the stored action moved toward a large target -- an implementation regressing at
+    resampled or zero actions could still raise those predictions and pass;
+    `test_the_estimators_are_regressed_at_the_stored_action` compared two
+    hypothetical losses to each other and never called `_update_critics()` at all.
+
+    Here, from identical model state, an independent reference copy of EACH critic
+    is stepped by a fresh, identically-configured `Adam` against the hand-derived
+    MSE loss at the stored actions, and `_update_critics()`'s actual parameters must
+    land bit-identical to it. A second reference, stepped the same way but at a
+    RESAMPLED action, must differ from `_update_critics()`'s actual result -- so the
+    stored-vs-resampled distinction is demonstrably tested rather than assumed.
     """
     observations, actions = batch_tensors["observations"], batch_tensors["actions"]
     target = torch.full((BATCH,), 5.0)  # far from initialisation, so the direction is unambiguous
 
-    before_1 = sac._critic_1(observations, actions).detach()
-    before_2 = sac._critic_2(observations, actions).detach()
-    for group in sac._critic_1_optimizer.param_groups + sac._critic_2_optimizer.param_groups:
-        group["lr"] = 0.05
+    critics = {"critic_1": sac._critic_1, "critic_2": sac._critic_2}
+    optimizers = {"critic_1": sac._critic_1_optimizer, "critic_2": sac._critic_2_optimizer}
+    before_states = {name: {n: t.clone() for n, t in critic.state_dict().items()} for name, critic in critics.items()}
+
+    torch.manual_seed(41)
+    resampled_actions, _ = sac._actor.sample(observations)
+    resampled_actions = resampled_actions.detach()
+
+    expected_after = {
+        name: _step_reference_critic(sac, before_states[name], optimizers[name].defaults, observations, actions, target)
+        for name in critics
+    }
+    wrong_after = {
+        name: _step_reference_critic(
+            sac, before_states[name], optimizers[name].defaults, observations, resampled_actions, target
+        )
+        for name in critics
+    }
 
     sac._update_critics(observations, actions, target)
 
-    after_1 = sac._critic_1(observations, actions).detach()
-    after_2 = sac._critic_2(observations, actions).detach()
-    assert torch.all(after_1 > before_1), "estimator 1 did not move toward the target"
-    assert torch.all(after_2 > before_2), "estimator 2 did not move toward the target"
-
-
-@pytest.mark.unit
-def test_the_estimators_are_regressed_at_the_stored_action(sac: SACModel, batch_tensors: dict) -> None:
-    """A resampled action would produce a different loss, hence a different step."""
-    observations, actions = batch_tensors["observations"], batch_tensors["actions"]
-    target = torch.full((BATCH,), 5.0)
-
-    at_stored = torch.nn.functional.mse_loss(sac._critic_1(observations, actions), target)
-    torch.manual_seed(2)
-    resampled, _ = sac._actor.sample(observations)
-    at_resampled = torch.nn.functional.mse_loss(sac._critic_1(observations, resampled.detach()), target)
-
-    assert not torch.allclose(at_stored, at_resampled), (
-        "the stored and resampled actions give the same loss on this batch, so the distinction is untested"
-    )
+    for name, critic in critics.items():
+        produced = [p.detach().clone() for p in critic.parameters()]
+        for expected, actual in zip(expected_after[name], produced, strict=True):
+            assert torch.allclose(expected, actual, atol=1e-6), (
+                f"_update_critics()'s real effect on {name} does not match regression at the stored action"
+            )
+        assert any(not torch.allclose(w, p, atol=1e-6) for w, p in zip(wrong_after[name], produced, strict=True)), (
+            f"regressing {name} at a resampled action is not detectable here -- "
+            "the stored-vs-resampled distinction is untested"
+        )

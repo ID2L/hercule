@@ -422,8 +422,24 @@ class OffPolicyReplayModel(RLModel[HyperParamsType], ABC, Generic[HyperParamsTyp
         of churn per call, twice per gradient step, and it measured at 5.8 s of a
         19.2 s episode -- more than a quarter of the whole run. The in-place torch
         version fuses the conversion and reuses one buffer.
+
+        The in-place operations below must never reach the caller's own array.
+        `torch.from_numpy` shares memory with `observation`, and `Tensor.to(device,
+        dtype)` returns `self` -- not a copy -- whenever the array already matches
+        the target device and dtype (e.g. a float32 array already on CPU). Without
+        `copy=`, `sub_`/`div_` would then write the rescaled values straight back
+        into the caller's array. `copy=will_rescale` asks for a copy only when one
+        of those in-place ops is actually about to run; when neither operand is
+        set (no rescaling configured) behaviour and cost stay exactly as before.
+        When the dtype genuinely differs (the uint8 image path), `.to()` already
+        allocates a new tensor for the conversion itself, so requesting a copy
+        there is free -- `Tensor.to()` only creates a second copy when the source
+        already matches dtype and device, which the uint8 case never does.
         """
-        tensor = torch.from_numpy(np.ascontiguousarray(observation)).to(self._device, dtype=torch.float32)
+        will_rescale = self._obs_offset_operand is not None or self._obs_scale_operand is not None
+        tensor = torch.from_numpy(np.ascontiguousarray(observation)).to(
+            self._device, dtype=torch.float32, copy=will_rescale
+        )
         if self._obs_offset_operand is not None:
             tensor.sub_(self._obs_offset_operand)
         if self._obs_scale_operand is not None:
