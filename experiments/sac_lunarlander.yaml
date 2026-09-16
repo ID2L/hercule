@@ -1,0 +1,33 @@
+# Soft Actor-Critic on LunarLander-v3 (continuous control), for SC-006.
+#
+# The bar is SC-006: a mean reward of at least 200 over **100** evaluation
+# episodes -- the score at which this environment is conventionally considered
+# solved -- within a training budget of 3000 episodes. The 100-episode protocol
+# is that convention's own, deliberately not the 20-episode protocol the other
+# rungs (`sac_pendulum.yaml`, `sac_oracle.yaml`, `sac_car_racing.yaml`) use.
+#
+# `continuous: true` selects LunarLander's Box(2,) action space (main engine,
+# lateral engines) -- SAC requires a Box action space and rejects Discrete
+# outright (`SACModel.configure()`).
+
+name: "sac_lunarlander"
+
+environments:
+  - name: "LunarLander-v3"
+    hyperparameters:
+      - key: "continuous"
+        value: true
+
+models:
+  - name: "sac"
+    hyperparameters:
+      - key: "learning_starts"
+        value: 1000
+      - key: "batch_size"
+        value: 256
+      - key: "seed"
+        value: 42
+
+learn_max_epoch: 3000
+test_epoch: 100
+base_output_dir: "outputs"

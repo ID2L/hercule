@@ -190,25 +190,41 @@ class _CarRacingShapedEnv(gym.Env):
 
 @pytest.mark.unit
 def test_carracing_shaped_checkpoint_size(tmp_path) -> None:
-    """Measure `model.json` for a stacked CarRacing-shaped network (T049).
+    """Measure `model.json` for a TRAINED, stacked CarRacing-shaped network (T049).
 
     This is a REGRESSION GUARD against a return to the pre-S05 encoding (133.9 MB
     measured on disk, `tensor.tolist()` + `json.dump`), not an enforcement of the
-    roadmap's original "under 15 MB" acceptance bar: measured here at
-    22-45 MB (untrained / trained), that bar is unreachable while also
-    satisfying T038 (the target network must be serialised in its own right,
-    not copied from the online one) and T039 (the optimizer state must be
-    serialised too). Two full-precision copies of this network's ~11.2 MB
-    base64-encoded state dict already total ~22.3 MB before the optimizer or
-    RNG state add anything; a trained Adam optimizer roughly doubles that again
-    (its `exp_avg`/`exp_avg_sq` buffers are the same size as the network they
-    shadow). See the PR description / final report for the measured numbers and
-    this discrepancy against the roadmap's stated bar.
+    roadmap's original "under 15 MB" acceptance bar: measured here at 22-45 MB
+    (untrained / trained), that bar is unreachable while also satisfying T038
+    (the target network must be serialised in its own right, not copied from the
+    online one) and T039 (the optimizer state must be serialised too).
+
+    The assertion measures the TRAINED state on purpose, not the state right
+    after `configure()`. Adam allocates its `exp_avg`/`exp_avg_sq` buffers
+    lazily, on the first `step()` -- an untrained checkpoint contains only the
+    two networks (~22.3 MB) and an empty optimizer `state_dict()["state"]`, so
+    it never exercises the optimizer-state half of what this guard is meant to
+    protect. Training for a couple of epochs first (batch_size=2, step_modulo=1
+    so the second epoch's push already meets the batch size) forces one real
+    gradient step, populating those buffers before `save()` runs; the size
+    roughly doubles as a result (measured ~44.7 MB), since the Adam moment
+    buffers are the same size as the network they shadow. The
+    `state_dict()["state"]` assertion below exists so this test cannot silently
+    regress back to measuring the untrained, optimizer-empty case.
     """
     env = _CarRacingShapedEnv()
     model = DeepQLearningModel()
-    assert model.configure(env, {"frame_stack": 3, "seed": 42})
+    assert model.configure(env, {"frame_stack": 3, "seed": 42, "batch_size": 2, "step_modulo": 1})
     assert tuple(model._q_network.observation_shape) == (96, 96, 12)
+
+    # `_CarRacingShapedEnv` terminates after one step, so each `run_epoch` pushes
+    # exactly one transition; two epochs fill the batch of 2 and trigger exactly
+    # one gradient step.
+    model.run_epoch(train_mode=True)
+    model.run_epoch(train_mode=True)
+
+    optimizer_state = model._optimizer.state_dict()["state"]
+    assert optimizer_state, "expected a gradient step to have populated Adam's optimizer state before measuring"
 
     model.save(tmp_path)
 
