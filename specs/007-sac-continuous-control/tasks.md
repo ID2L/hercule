@@ -252,13 +252,13 @@ model is rebuilt on it.
 
 ## Phase 6 (US4, P3): Reach the image-observation environment
 
-- [ ] T058 [US4] Ship `experiments/sac_car_racing.yaml` at `learn_max_epoch: 700`, matching
+- [X] T058 [US4] Ship `experiments/sac_car_racing.yaml` at `learn_max_epoch: 700`, matching
       `dq_car_racing.yaml` so the two runs are comparable, with the checkpoint interval set for a
       ~129 MB write
-- [ ] T059 [US4] `tests/models/test_sac_persistence.py` — SC-008: a checkpoint written on a shaped
+- [X] T059 [US4] `tests/models/test_sac_persistence.py` — SC-008: a checkpoint written on a shaped
       CarRacing-like environment stays under **150 MB**, and the deep model's own **50 MB** guard is
       still green
-- [ ] T060 [US4] SC-005: interrupt and resume — the temperature, every optimizer's state, the delayed
+- [X] T060 [US4] SC-005: interrupt and resume — the temperature, every optimizer's state, the delayed
       copies' lag and all three RNG streams continue from their stored values, none reverting to an
       initial one
 - [ ] T061 [US4] Run the recorded experiment and check SC-007: at epoch 700, mean test reward over 20
@@ -275,19 +275,19 @@ model is rebuilt on it.
       `tests/fixtures/golden/`, replacing them with a determinism property test — same seed twice
       identical, different seeds different — which stores no expectation and survives later deliberate
       behaviour changes (FR-002, SC-004). `tests/fixtures/checkpoints/` **stays**
-- [ ] T064 [P] Document in `CLAUDE.md` that a resumed off-policy run restarts with an empty replay
+- [X] T064 [P] Document in `CLAUDE.md` that a resumed off-policy run restarts with an empty replay
       buffer, and that the step in the learning curve is expected (FR-028)
-- [ ] T065 [P] Add a `CLAUDE.md` gotcha recording that module **construction order** is observable
+- [X] T065 [P] Add a `CLAUDE.md` gotcha recording that module **construction order** is observable
       behaviour whenever a seeded RNG initialises weights — the single most expensive thing to
       rediscover in this feature
-- [ ] T066 [P] Add a `CLAUDE.md` gotcha recording that a `state_dict`'s keys are attribute paths, so
+- [X] T066 [P] Add a `CLAUDE.md` gotcha recording that a `state_dict`'s keys are attribute paths, so
       renaming a module breaks every stored checkpoint while changing no number, and that a
       weight-comparing fixture is structurally blind to it
-- [ ] T067 [P] Update `AGENTS.md`'s "How to Add a New RL Algorithm" with the `OffPolicyReplayModel`
+- [X] T067 [P] Update `AGENTS.md`'s "How to Add a New RL Algorithm" with the `OffPolicyReplayModel`
       hook surface
 - [ ] T068 `uv run ruff check . --fix && uv run ruff format .`
 - [ ] T069 `uv run pytest` green and `uv run gen-doc` still succeeding (SC-018)
-- [ ] T070 Write the PR's **Constitution Impact** section: two Root Class Registry additions and one
+- [X] T070 Write the PR's **Constitution Impact** section: two Root Class Registry additions and one
       Principle VI clarification, 1.2.0 → 1.3.0
 
 ---
