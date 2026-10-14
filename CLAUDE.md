@@ -120,7 +120,21 @@ Current hierarchy:
 `EnvironmentRegistry` (static registry queries with similar-name suggestions), `EnvironmentInspector` (metadata
 from `env.spec`), and `save_environment`/`load_environment` which round-trip an env through JSON by keeping only
 the keys accepted by `gym.make`. That JSON is what `hercule play` consumes to rebuild the env with
-`render_mode="human"`.
+`render_mode="human"` (falling back to no render, with a warning, when the env does not declare that mode).
+
+**Custom environments** (not in the Gymnasium registry) are declared in the YAML with an `entry_point`
+(`"module:Class"`) and an optional `python_path` (directories prepended to `sys.path`, relative to the YAML file;
+`load_config_from_yaml()` resolves them to absolute paths). `EnvironmentFactory.get_or_create_from_config()` calls
+`register_custom_environment()` (registers `name` -> `entry_point`, refuses a conflicting re-registration) before
+`gym.make`. `action_discretization: {bins: ...}` wraps a continuous `Box` action space into a `Discrete` one with
+`environnements/wrappers.py`'s `DiscretizeActionWrapper` — a Hercule-side wrapper, the environment code is
+untouched — and appends `act_dis_<bins>` to the env directory signature. `save_environment()` writes those three
+settings to a `"hercule"` section of `environment.json`, which `load_environment()` replays (registration +
+wrapper), so `hercule play` and reports rebuild a custom env in a fresh process. Example: `custom_environments/
+race_env/` (Crash&Learn F1Tenth `RaceEnv`, copied in; its sim backend and `f110_gym` engine are vendored as-is and
+excluded from ruff; deps in the `custom-environments` uv group) with `experiments/race_env_dummy.yaml` (continuous)
+and `experiments/race_env_dqn.yaml` (discretized for DQN). The supervisor still pairs every environment with every
+model, so a continuous env and a discrete-only model must go in separate configs (see the `configure()` gotcha).
 
 ### Reports
 
@@ -270,6 +284,11 @@ end user reads.
 - `TDModel.configure()` returns `False` (instead of raising) when the env spaces are not discrete, and
   `Supervisor` ignores the return value — pairing a tabular model with e.g. `CartPole-v1` fails later with an
   unrelated error. Validate the pairing in the config.
+- `save_environment()` reads the spec of the env `gym.make` returned (below Hercule's wrappers), **not**
+  `env.unwrapped.spec`: only the former carries `max_episode_steps` (the `TimeLimit` lives on the outer env).
+- `BaseConfig.expand_variants()` builds variants with `model_copy()`, so subclass fields (`entry_point`,
+  `python_path`, `action_discretization`) survive expansion; rebuilding `EnvironmentConfig(name=..., hyperparameters=...)`
+  would silently drop them.
 - `EnvironmentManager.load_environment()` still contains debug `print()` calls; `Supervisor` bypasses that class
   and uses `EnvironmentFactory` directly.
 - Model persistence is JSON, so `save_every_n_epoch` on a large DQN writes big files; tune it per experiment.

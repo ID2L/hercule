@@ -13,10 +13,8 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import gymnasium as gym
-
 from hercule.config import HerculeConfig, load_config_from_yaml
-from hercule.environnements import load_environment
+from hercule.environnements import environment_supports_render_mode, load_environment
 from hercule.models import RLModel, create_model
 from hercule.reports import _sanitize_reason, generate_report
 from hercule.supervisor import Supervisor
@@ -101,12 +99,16 @@ def play_interactive(
     Returns:
         PlayResult: aggregate statistics of the session.
     """
-    # Load environment description and instantiate render-capable environment
+    # Instantiate the saved environment (custom registration and Hercule wrappers included), with rendering if the
+    # environment supports the requested render mode.
+    with open(environment_file, encoding="utf-8") as f:
+        env_id = json.load(f)["id"]
     environment = load_environment(environment_file)
-    env_id = environment.spec.id if getattr(environment, "spec", None) else "Unknown"
-    kwargs = getattr(getattr(environment, "spec", None), "kwargs", {}) or {}
-
-    env_with_render = gym.make(env_id, render_mode=render_mode, **kwargs)
+    if not environment_supports_render_mode(env_id, render_mode):
+        logger.warning(f"Environment '{env_id}' does not support render_mode={render_mode!r}; playing without render")
+        render_mode = None
+    environment.close()
+    env_with_render = load_environment(environment_file, render_mode=render_mode)
 
     try:
         # Load model payload

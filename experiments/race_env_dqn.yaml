@@ -1,0 +1,35 @@
+# Smoke test of a custom Gymnasium environment: RaceEnv (Crash&Learn Grand Prix, F1Tenth simulation), copied into
+# custom_environments/race_env. Very few epochs: this checks the pipeline, it does not train anything.
+#
+# RaceEnv has a continuous action space Box(2,) (target speed, steering, both in [-1, 1]). action_discretization
+# wraps it into Discrete(5 x 5 = 25) actions so deep_q_learning can drive it. The discretization is a Hercule
+# wrapper: the environment itself is unchanged and still receives a continuous action.
+
+name: "race_env_dqn"
+
+environments:
+  - name: "RaceEnv-v0"
+    entry_point: "race_env:RaceEnv"
+    python_path: ["../custom_environments/race_env"]
+    action_discretization:
+      bins: [5, 5]
+    hyperparameters:
+      - key: "max_episode_steps"
+        value: 300
+
+models:
+  - name: "deep_q_learning"
+    hyperparameters:
+      - key: "learning_rate"
+        value: 0.00025
+      - key: "batch_size"
+        value: 32
+      - key: "replay_buffer_size"
+        value: 5000
+      - key: "seed"
+        value: 42
+
+learn_max_epoch: 5
+test_epoch: 2
+save_every_n_epoch: 5
+base_output_dir: "outputs"

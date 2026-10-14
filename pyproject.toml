@@ -53,6 +53,14 @@ dev = [
     "pypdf>=5.1,<6",
 ]
 
+# Dependencies of the custom environments shipped in custom_environments/ (race_env: the F1Tenth engine).
+# Not needed by the hercule package itself.
+custom-environments = [
+    "numba>=0.60",
+    "scipy>=1.11",
+    "pillow>=10.0",
+]
+
 [tool.uv]
 default-groups = "all"
 
@@ -91,6 +99,11 @@ markers = [
 [tool.ruff]
 src = ["src", "tests"]
 line-length = 120
+# Vendored as-is from crash-and-learn (simulation backend + F1Tenth engine); only race_env.py is Hercule-maintained.
+extend-exclude = [
+    "custom_environments/race_env/env_simulation.py",
+    "custom_environments/race_env/f110_gym",
+]
 
 [tool.ruff.lint]
 select = [

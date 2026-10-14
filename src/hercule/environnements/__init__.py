@@ -3,38 +3,136 @@
 import inspect
 import json
 import logging
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import gymnasium as gym
 import numpy as np
-from gymnasium.envs.registration import registry
+from gymnasium.envs.registration import load_env_creator, registry
 from pydantic import BaseModel
 
-from hercule.config import EnvironmentConfig, HerculeConfig, ParameterValue
+from hercule.config import ActionDiscretizationConfig, EnvironmentConfig, HerculeConfig, ParameterValue
+from hercule.environnements.wrappers import DiscretizeActionWrapper
 
 
 logger = logging.getLogger(__name__)
 
+# Key of the Hercule-specific section of environment.json (custom entry point, wrappers): everything gym.make cannot
+# rebuild from the registry alone.
+HERCULE_SECTION_KEY: Final = "hercule"
 
-def save_environment(env: gym.Env, path: Path) -> bool:
-    spec = env.spec
-    if spec is not None:
-        gym_make_params = inspect.signature(gym.make).parameters
-        spec_dict = {k: v for k, v in spec.__dict__.items() if k in gym_make_params}
-        with open(path, "w") as f:
-            json.dump(spec_dict, f, indent=2)
+
+def register_custom_environment(env_id: str, entry_point: str, python_path: list[Path] | None = None) -> None:
+    """Make a custom environment creatable with ``gym.make(env_id)``.
+
+    Prepends ``python_path`` to ``sys.path`` (so the entry point's module and its own bare imports resolve), then
+    registers ``env_id`` -> ``entry_point`` unless that exact registration already exists. Registration is lazy:
+    the module is only imported when the environment is created.
+
+    Args:
+        env_id: Gymnasium id to register, e.g. ``"RaceEnv-v0"``.
+        entry_point: ``"module.path:ClassName"``.
+        python_path: Directories to prepend to ``sys.path``.
+
+    Raises:
+        ValueError: If ``env_id`` is already registered with a different entry point.
+    """
+    for directory in reversed(python_path or []):
+        directory_str = str(directory)
+        if directory_str not in sys.path:
+            sys.path.insert(0, directory_str)
+
+    existing = registry.get(env_id)
+    if existing is not None:
+        if existing.entry_point != entry_point:
+            raise ValueError(
+                f"Environment '{env_id}' is already registered with entry point {existing.entry_point!r}, "
+                f"cannot register it again with {entry_point!r}. Use another name."
+            )
+        return
+    gym.register(id=env_id, entry_point=entry_point)
+    logger.info(f"Registered custom environment {env_id} -> {entry_point}")
+
+
+def apply_environment_wrappers(env: gym.Env, action_discretization: ActionDiscretizationConfig | None) -> gym.Env:
+    """Apply the Hercule wrappers configured for an environment (currently: action discretization)."""
+    if action_discretization is not None:
+        env = DiscretizeActionWrapper(env, action_discretization.bins)
+    return env
+
+
+def environment_supports_render_mode(env_id: str, render_mode: str | None) -> bool:
+    """Whether ``gym.make(env_id, render_mode=render_mode)`` is supported, without creating the environment."""
+    if render_mode is None:
         return True
-    return False
+    creator = load_env_creator(gym.spec(env_id).entry_point)
+    return render_mode in getattr(creator, "metadata", {}).get("render_modes", [])
 
 
-def load_environment(path: Path) -> gym.Env:
+def save_environment(env: gym.Env, path: Path, environment_config: EnvironmentConfig | None = None) -> bool:
+    """Save what is needed to rebuild ``env`` with :func:`load_environment`.
+
+    Args:
+        env: Environment created by ``gym.make`` (possibly wrapped by Hercule).
+        path: JSON file to write.
+        environment_config: Configuration the environment was created from; its custom entry point, python path and
+            action discretization are saved in a ``"hercule"`` section so the environment can be rebuilt in another
+            process (``hercule play``, reports), where the custom registration does not exist yet.
+
+    Returns:
+        ``False`` if the environment has no spec (not created through ``gym.make``), ``True`` otherwise.
+    """
+    # Read the spec of the env gym.make returned (it carries max_episode_steps, the unwrapped one does not),
+    # i.e. below the Hercule wrappers
+    while isinstance(env, DiscretizeActionWrapper):
+        env = env.env
+    spec = env.spec
+    if spec is None:
+        return False
+    gym_make_params = inspect.signature(gym.make).parameters
+    spec_dict: dict[str, Any] = {k: v for k, v in spec.__dict__.items() if k in gym_make_params}
+    if environment_config is not None:
+        hercule_section: dict[str, Any] = {}
+        if environment_config.entry_point is not None:
+            hercule_section["entry_point"] = environment_config.entry_point
+            hercule_section["python_path"] = [str(p.resolve()) for p in environment_config.python_path]
+        if environment_config.action_discretization is not None:
+            hercule_section["action_discretization"] = environment_config.action_discretization.model_dump()
+        if hercule_section:
+            spec_dict[HERCULE_SECTION_KEY] = hercule_section
+    with open(path, "w") as f:
+        json.dump(spec_dict, f, indent=2)
+    return True
+
+
+def load_environment(path: Path, render_mode: str | None = None) -> gym.Env:
+    """Rebuild an environment saved by :func:`save_environment`.
+
+    Args:
+        path: environment.json file.
+        render_mode: Render mode to create the environment with (``None``: no rendering).
+
+    Returns:
+        The environment, with the Hercule wrappers it was trained with.
+    """
     with open(path) as f:
         spec_dict = json.load(f)
 
+    hercule_section = spec_dict.pop(HERCULE_SECTION_KEY, {})
     kwargs, base = spec_dict.pop("kwargs", {}), spec_dict
+    if "entry_point" in hercule_section:
+        register_custom_environment(
+            base["id"], hercule_section["entry_point"], [Path(p) for p in hercule_section.get("python_path", [])]
+        )
+    if render_mode is not None:
+        kwargs = {**kwargs, "render_mode": render_mode}
 
-    return gym.make(**base, **kwargs)
+    env = gym.make(**base, **kwargs)
+    discretization = hercule_section.get("action_discretization")
+    return apply_environment_wrappers(
+        env, ActionDiscretizationConfig(**discretization) if discretization is not None else None
+    )
 
 
 class SpaceInfo(BaseModel):
@@ -206,6 +304,35 @@ class EnvironmentFactory:
             return self._environments[cache_key]
 
         env = self.create_environment(env_name, **kwargs)
+        self._environments[cache_key] = env
+        return env
+
+    def get_or_create_from_config(self, environment_config: EnvironmentConfig) -> gym.Env:
+        """
+        Get cached environment or create a new one from its configuration.
+
+        Registers a custom environment first (``entry_point``) and applies the configured Hercule wrappers.
+
+        Args:
+            environment_config: Environment configuration (variants already expanded)
+
+        Returns:
+            Gymnasium environment (cached or newly created)
+        """
+        if environment_config.entry_point is not None:
+            register_custom_environment(
+                environment_config.name, environment_config.entry_point, environment_config.python_path
+            )
+        kwargs = environment_config.get_hyperparameters_dict()
+        discretization = environment_config.action_discretization
+        cache_key = (
+            f"{environment_config.name}_{hash(frozenset(kwargs.items()))}_"
+            f"{discretization.get_signature() if discretization else ''}"
+        )
+        if cache_key in self._environments:
+            return self._environments[cache_key]
+
+        env = apply_environment_wrappers(self.create_environment(environment_config.name, **kwargs), discretization)
         self._environments[cache_key] = env
         return env
 
@@ -448,6 +575,12 @@ class EnvironmentManager:
 
 
 __all__ = [
+    "DiscretizeActionWrapper",
+    "apply_environment_wrappers",
+    "environment_supports_render_mode",
+    "load_environment",
+    "register_custom_environment",
+    "save_environment",
     "SpaceInfo",
     "DiscreteSpaceInfo",
     "BoxSpaceInfo",
