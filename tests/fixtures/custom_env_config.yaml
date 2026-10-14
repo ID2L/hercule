@@ -1,0 +1,27 @@
+name: "custom_env_test"
+
+environments:
+  - name: "HerculeTestLineEnv-v0"
+    entry_point: "line_env:LineEnv"
+    python_path: ["custom_env"]
+    hyperparameters:
+      - key: "max_episode_steps"
+        value: 20
+      - key: "step_size"
+        value: [0.25, 0.5]
+
+  - name: "HerculeTestLineEnv-v0"
+    entry_point: "line_env:LineEnv"
+    python_path: ["custom_env"]
+    action_discretization:
+      bins: 3
+    hyperparameters:
+      - key: "max_episode_steps"
+        value: 20
+
+models:
+  - name: "dummy"
+
+learn_max_epoch: 3
+test_epoch: 2
+save_every_n_epoch: 3

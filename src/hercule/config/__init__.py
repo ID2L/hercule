@@ -86,14 +86,8 @@ class BaseConfig(BaseModel):
                 HyperParameter(key=key, value=value) for key, value in zip(param_keys, combination, strict=True)
             ]
             # Create a new config instance with these hyperparameters
-            if isinstance(self, ModelConfig):
-                variant = ModelConfig(name=self.name, hyperparameters=new_hyperparameters)
-            elif isinstance(self, EnvironmentConfig):
-                variant = EnvironmentConfig(name=self.name, hyperparameters=new_hyperparameters)
-            else:
-                # Fallback for BaseConfig (shouldn't happen in practice)
-                variant = BaseConfig(name=self.name, hyperparameters=new_hyperparameters)
-            variants.append(variant)
+            # model_copy keeps the subclass and its other fields (e.g. an environment's entry_point)
+            variants.append(self.model_copy(update={"hyperparameters": new_hyperparameters}))
 
         return variants
 
@@ -140,10 +134,69 @@ class ModelConfig(BaseConfig):
     name: str = Field(..., description="Model name (subdirectory name in src/hercule/models)")
 
 
+class ActionDiscretizationConfig(BaseModel):
+    """Discretization of a continuous (Box) action space into a Discrete one, applied by Hercule as a wrapper."""
+
+    bins: int | list[int] = Field(
+        ...,
+        description="Number of evenly spaced values per action dimension (one int for every dimension, or one per "
+        "dimension). The resulting Discrete space has the product of the bins as its size.",
+    )
+
+    @field_validator("bins")
+    @classmethod
+    def validate_bins(cls, v: int | list[int]) -> int | list[int]:
+        """Each dimension needs at least its two bounds."""
+        values = v if isinstance(v, list) else [v]
+        if not values or any(b < 2 for b in values):
+            raise ValueError(f"bins must be >= 2 for every action dimension, got {v}")
+        return v
+
+    def get_signature(self) -> str:
+        """Short directory-friendly signature, e.g. ``act_dis_5x5``."""
+        values = self.bins if isinstance(self.bins, list) else [self.bins]
+        return "act_dis_" + "x".join(str(b) for b in values)
+
+
 class EnvironmentConfig(BaseConfig):
-    """Configuration for a specific environment."""
+    """Configuration for a specific environment.
+
+    A built-in Gymnasium environment only needs ``name``. A custom environment additionally declares the class to
+    instantiate (``entry_point``) and, if its module is not importable as-is, the directories to put on
+    ``sys.path`` (``python_path``); Hercule then registers ``name`` in the Gymnasium registry before creating it.
+    ``hyperparameters`` are passed to ``gym.make`` (hence to the environment constructor) either way.
+    """
 
     name: str = Field(..., description="Environment name (Gymnasium environment ID)")
+    entry_point: str | None = Field(
+        default=None,
+        description="Custom environment class as 'module.path:ClassName'; registers `name` in Gymnasium",
+    )
+    python_path: list[Path] = Field(
+        default_factory=list,
+        description="Directories added to sys.path before importing the entry point (relative to the YAML file)",
+    )
+    action_discretization: ActionDiscretizationConfig | None = Field(
+        default=None, description="Discretize a continuous action space so discrete-action models can use it"
+    )
+
+    @field_validator("entry_point")
+    @classmethod
+    def validate_entry_point(cls, v: str | None) -> str | None:
+        """An entry point must name both a module and an attribute."""
+        if v is not None:
+            module, _, attribute = v.partition(":")
+            if not module or not attribute:
+                raise ValueError(f"entry_point must be 'module.path:ClassName', got {v!r}")
+        return v
+
+    def get_hyperparameters_signature(self) -> str:
+        """Hyperparameter signature, suffixed with the action discretization when there is one."""
+        signature = super().get_hyperparameters_signature()
+        if self.action_discretization is None:
+            return signature
+        discretization = self.action_discretization.get_signature()
+        return discretization if signature == "default" else f"{signature}__{discretization}"
 
 
 class RunConfig(BaseModel):
@@ -368,6 +421,13 @@ def load_config_from_yaml(config_path: Path | str) -> HerculeConfig:
         config_data = yaml.safe_load(file)
 
     config = HerculeConfig(**config_data)
+    # A custom environment's python_path is relative to the YAML file, not to the current directory
+    for environment in config.environments:
+        if isinstance(environment, EnvironmentConfig):
+            environment.python_path = [
+                path if path.is_absolute() else (config_path.parent / path).resolve()
+                for path in environment.python_path
+            ]
     # Automatically expand variants with list values
     return config.expand_variants()
 
